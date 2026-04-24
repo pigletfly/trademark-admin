@@ -1,9 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { SearchProvider } from '@/context/search-provider'
+import type { AuthUser } from '@/stores/auth-store'
 
-const COMMAND_MENU_PLACEHOLDER = 'Type a command or search...'
+const COMMAND_MENU_PLACEHOLDER = '搜索菜单或命令…'
+
+const adminUser: AuthUser = {
+  id: '00000000-0000-0000-0000-000000000001',
+  name: '管理员',
+  email: 'admin@example.com',
+  phone: '',
+  role: 'admin',
+  status: 'active',
+}
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -22,10 +34,27 @@ vi.mock('@/context/theme-provider', () => ({
   useTheme: () => ({ setTheme: mocks.setTheme }),
 }))
 
+vi.mock('@/features/auth/hooks', () => ({
+  useMe: () => ({ data: adminUser }),
+}))
+
 type ShortcutModifier = 'Control' | 'Meta'
 
+function makeClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
+
+function Wrapper({ children }: { children: ReactNode }) {
+  const client = makeClient()
+  return (
+    <QueryClientProvider client={client}>
+      <SearchProvider>{children}</SearchProvider>
+    </QueryClientProvider>
+  )
+}
+
 async function renderWithSearchProvider() {
-  return await render(<SearchProvider>{null}</SearchProvider>)
+  return await render(<Wrapper>{null}</Wrapper>)
 }
 
 /**
@@ -69,11 +98,11 @@ describe('SearchProvider and CommandMenu', () => {
     await expect
       .element(getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
       .toBeInTheDocument()
-    await expect.element(getByText('Theme')).toBeInTheDocument()
-    await expect.element(getByText('Light')).toBeInTheDocument()
-    await expect.element(getByText('Dark')).toBeInTheDocument()
-    await expect.element(getByText('System')).toBeInTheDocument()
-    await expect.element(getByText('Dashboard')).toBeInTheDocument()
+    await expect.element(getByText('外观')).toBeInTheDocument()
+    await expect.element(getByText('浅色')).toBeInTheDocument()
+    await expect.element(getByText('深色')).toBeInTheDocument()
+    await expect.element(getByText('跟随系统')).toBeInTheDocument()
+    await expect.element(getByText('仪表盘')).toBeInTheDocument()
   })
 
   it('does not show the dialog content when search is closed', async () => {
@@ -109,25 +138,24 @@ describe('SearchProvider and CommandMenu', () => {
 
     await openCommandPalette(screen)
 
-    await userEvent.click(screen.getByText('Tasks'))
+    await userEvent.click(screen.getByText('客户'))
 
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/tasks' })
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/customers' })
     await expect
       .element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
       .not.toBeInTheDocument()
   })
 
-  it('navigates for nested sidebar items (group with sub-items)', async () => {
+  it('navigates to an admin-only catalog route when selected', async () => {
     const screen = await renderWithSearchProvider()
-    const { getByPlaceholder, getByRole } = screen
 
     await openCommandPalette(screen)
 
-    await userEvent.click(getByRole('option', { name: 'Settings Account' }))
+    await userEvent.click(screen.getByText('国家'))
 
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings/account' })
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/catalog/countries' })
     await expect
-      .element(getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
+      .element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
       .not.toBeInTheDocument()
   })
 
@@ -136,7 +164,7 @@ describe('SearchProvider and CommandMenu', () => {
 
     await openCommandPalette(screen)
 
-    await userEvent.click(screen.getByText('Dark'))
+    await userEvent.click(screen.getByText('深色'))
 
     expect(mocks.setTheme).toHaveBeenCalledWith('dark')
     await expect
@@ -155,7 +183,7 @@ describe('SearchProvider and CommandMenu', () => {
     )
 
     await expect
-      .element(screen.getByText('No results found.'))
+      .element(screen.getByText('无匹配结果。'))
       .toBeInTheDocument()
   })
 })
