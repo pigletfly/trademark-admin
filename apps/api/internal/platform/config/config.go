@@ -19,6 +19,9 @@ type Config struct {
 	JWTAccessTTL     time.Duration
 	JWTRefreshTTL    time.Duration
 	CookieSecure     bool
+
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
 }
 
 // Load reads configuration from environment variables and applies defaults.
@@ -55,6 +58,9 @@ func Load() (*Config, error) {
 
 	secure, _ := strconv.ParseBool(getenvDefault("COOKIE_SECURE", "false"))
 	cfg.CookieSecure = secure
+
+	cfg.BootstrapAdminEmail = os.Getenv("BOOTSTRAP_ADMIN_EMAIL")
+	cfg.BootstrapAdminPassword = os.Getenv("BOOTSTRAP_ADMIN_PASSWORD")
 
 	return cfg, nil
 }

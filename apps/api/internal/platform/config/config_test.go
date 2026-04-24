@@ -21,6 +21,8 @@ func TestLoad_defaults(t *testing.T) {
 	t.Setenv("JWT_ACCESS_TTL", "")
 	t.Setenv("JWT_REFRESH_TTL", "")
 	t.Setenv("COOKIE_SECURE", "")
+	t.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -43,6 +45,12 @@ func TestLoad_defaults(t *testing.T) {
 	}
 	if cfg.CookieSecure {
 		t.Errorf("CookieSecure should default to false")
+	}
+	if cfg.BootstrapAdminEmail != "" {
+		t.Errorf("BootstrapAdminEmail = %q, want empty", cfg.BootstrapAdminEmail)
+	}
+	if cfg.BootstrapAdminPassword != "" {
+		t.Errorf("BootstrapAdminPassword = %q, want empty", cfg.BootstrapAdminPassword)
 	}
 }
 
