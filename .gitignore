@@ -32,3 +32,9 @@ dist-ssr
 # Vitest artifacts (browser screenshots/attachments)
 **/__screenshots__/
 .vitest-attachments/
+
+# Go binaries (belt-and-suspenders; apps/api/.gitignore also handles these)
+apps/api/bin/
+apps/api/server
+apps/api/migrate
+apps/api/seed
