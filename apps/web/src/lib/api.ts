@@ -37,12 +37,14 @@ api.interceptors.response.use(
     const original = error.config as RetryableConfig | undefined
     const status = error.response?.status
 
-    // Only intercept 401, only retry once, and never re-enter /auth/refresh itself.
+    // Only intercept 401, only retry once, and never re-enter /auth/refresh or /auth/login.
+    // (A 401 on /auth/login means wrong credentials, not an expired session.)
     if (
       status === 401 &&
       original &&
       !original.__retried &&
-      !original.url?.endsWith('/auth/refresh')
+      !original.url?.endsWith('/auth/refresh') &&
+      !original.url?.endsWith('/auth/login')
     ) {
       original.__retried = true
 

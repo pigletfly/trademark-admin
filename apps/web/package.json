@@ -70,6 +70,7 @@
     "@tanstack/react-router-devtools": "^1.166.13",
     "@tanstack/router-plugin": "^1.167.22",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
@@ -83,6 +84,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "knip": "^6.4.1",
+    "msw": "^2.13.6",
     "playwright": "1.59.1",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.7.2",
@@ -91,5 +93,10 @@
     "vite": "^8.0.8",
     "vitest": "^4.1.4",
     "vitest-browser-react": "^2.2.0"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
