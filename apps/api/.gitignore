@@ -4,7 +4,6 @@ server
 !cmd/server/
 migrate
 !cmd/migrate/
-seed
 
 # Editor
 .vscode/

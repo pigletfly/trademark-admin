@@ -37,4 +37,3 @@ dist-ssr
 apps/api/bin/
 apps/api/server
 apps/api/migrate
-apps/api/seed
