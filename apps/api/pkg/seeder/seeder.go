@@ -101,6 +101,11 @@ func upsertCountries(tx *gorm.DB, rows []SeedCountry) error {
 			"notes_zh":                    r.NotesZh,
 			"notes_en":                    r.NotesEn,
 			"sort_order":                  r.SortOrder,
+			// created_at/updated_at are set explicitly so the seeder does
+			// not silently rely on column DEFAULTs. ON CONFLICT keeps the
+			// original created_at and sets updated_at = NOW() (see below).
+			"created_at": gorm.Expr("NOW()"),
+			"updated_at": gorm.Expr("NOW()"),
 		})
 	}
 	// NOTE: use clause.Assignments (not AssignmentColumns): the JSON payload
@@ -135,6 +140,8 @@ func upsertNiceCategories(tx *gorm.DB, rows []SeedNiceCategory) error {
 			"name_en":        r.NameEn,
 			"description_zh": r.DescriptionZh,
 			"description_en": r.DescriptionEn,
+			"created_at":     gorm.Expr("NOW()"),
+			"updated_at":     gorm.Expr("NOW()"),
 		})
 	}
 	return tx.Table("nice_categories").Clauses(clause.OnConflict{

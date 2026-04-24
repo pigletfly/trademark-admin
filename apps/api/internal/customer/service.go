@@ -21,14 +21,18 @@ type Service struct{ repo *Repository }
 // NewService wires a Service.
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-// ownerScope returns a pointer to the caller UUID if the role is salesperson
-// (they only see their own rows), else nil (reviewer/admin see all).
+// ownerScope decides the visibility filter for the caller:
+//   - reviewer / admin: see everything (nil scope).
+//   - salesperson OR any other / unknown role: scoped to own rows.
+//
+// The fail-closed default means a JWT with a malformed or stale role
+// claim never silently grants admin-level visibility.
 func ownerScope(callerID uuid.UUID, role string) *uuid.UUID {
-	if role == RoleSalesperson {
-		c := callerID
-		return &c
+	if role == RoleReviewer || role == RoleAdmin {
+		return nil
 	}
-	return nil
+	c := callerID
+	return &c
 }
 
 // List returns a paginated list, scoped to the caller's role.
