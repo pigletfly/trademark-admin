@@ -1,0 +1,16 @@
+# Binaries
+bin/
+server
+migrate
+seed
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Local env
+.env
+.env.local
