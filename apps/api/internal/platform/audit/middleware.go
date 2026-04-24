@@ -49,7 +49,10 @@ func Middleware(repo *Repository, getUserID UserProvider, log *slog.Logger) gin.
 		if uid, ok := getUserID(c); ok {
 			entry.UserID = &uid
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		// Detach from the request context: Gin may cancel c.Request.Context()
+		// as soon as the handler returns, which races our insert. Use a fresh
+		// background context with our own 2s budget.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := repo.Insert(ctx, entry); err != nil {
 			log.Warn("audit insert failed", "error", err, "path", c.FullPath())
