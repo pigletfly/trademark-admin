@@ -9,7 +9,7 @@ export function useLogout() {
     mutationFn: async () => {
       await api.post('/auth/logout')
     },
-    onSuccess: () => {
+    onSettled: () => {
       useAuthStore.getState().auth.markUnauthenticated()
       qc.removeQueries({ queryKey: ME_QUERY_KEY })
     },

@@ -52,10 +52,15 @@ const queryClient = new QueryClient({
     onError: (error) => {
       if (error instanceof AxiosError) {
         if (error.response?.status === 401) {
-          toast.error('登录状态已失效')
-          useAuthStore.getState().auth.markUnauthenticated()
-          const redirect = `${router.history.location.href}`
-          router.navigate({ to: '/sign-in', search: { redirect } })
+          // The _authenticated beforeLoad guard + api.ts interceptor may have
+          // already flipped status to unauthenticated and queued a redirect.
+          // Skip the duplicate toast + navigate in that case.
+          if (useAuthStore.getState().auth.status !== 'unauthenticated') {
+            toast.error('登录状态已失效')
+            useAuthStore.getState().auth.markUnauthenticated()
+            const redirect = `${router.history.location.href}`
+            router.navigate({ to: '/sign-in', search: { redirect } })
+          }
         }
         if (error.response?.status === 500) {
           toast.error('Internal Server Error!')
