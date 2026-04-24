@@ -251,7 +251,8 @@ CREATE INDEX idx_pricing_lookup
 ```sql
 quotations (
   id                         UUID PRIMARY KEY,
-  serial_no                  TEXT UNIQUE NOT NULL,   -- Q202604230001
+  serial_no                  TEXT UNIQUE NOT NULL,   -- 格式：Q + YYYYMMDD + 4 位日内序列，如 Q202604230001
+                                                       -- 生成时使用 advisory lock + 当日 max(serial_no)+1
   status                     TEXT NOT NULL,          -- draft|submitted|reviewing|approved|rejected|downloaded
   creator_id                 UUID NOT NULL REFERENCES users(id),
   reviewer_id                UUID REFERENCES users(id),
@@ -275,6 +276,8 @@ quotations (
   -- 调价
   adjustment_type            TEXT NOT NULL DEFAULT 'none',  -- none|amount|percent
   adjustment_value           NUMERIC(14,2) NOT NULL DEFAULT 0,
+    -- amount 模式：正数 = 上浮 CNY，负数 = 下调 CNY
+    -- percent 模式：正数 = 上浮 N%，负数 = 下调 N%（即 "9 折" 存为 -10）
   adjustment_target          TEXT NOT NULL DEFAULT 'total', -- total|service_fee_only
 
   -- 工作流时间戳
@@ -302,6 +305,8 @@ quotation_items (
 ```
 
 **快照原则**：报价 `submit` 时，服务层运行计算引擎并将对应 `pricing_entries` 的有效值拷贝到 `quotation_items`。之后成本表无论怎么改，这张报价的数字不变。
+
+**reviewer 直改明细的语义**：审核阶段 `adjust` 可以覆盖 `quotation_items` 的 `unit_amount_cny` / `quantity` / `subtotal_cny`，但 `source_pricing_entry_id` 保留不动（作为「这条当初来源于哪个成本条目」的溯源信息），diff 写入 `quotation_reviews.diff_json`。
 
 ### 5.6 审核流水 + 审计
 
@@ -401,13 +406,15 @@ func (e *Engine) Compute(ctx, input QuoteInput) (QuoteResult, error)
 
 `quotation.Service.Submit(id)`：
 1. 加载 draft quotation 的全部输入
-2. 调用引擎（当前时间的 pricing）
+2. 调用引擎（以当前时间为 `effective_at` 的 pricing）
 3. 开事务：
    - `UPDATE quotations SET status='submitted', submitted_at=now, total_* = ...`
-   - 删除旧的 `quotation_items`（如果是重复 submit 的情况，见 §7.2 状态机）
+   - `DELETE FROM quotation_items WHERE quotation_id = ?`（清理上一次 submit 或 withdraw 残留）
    - 插入新的 `quotation_items`，每条带 `source_pricing_entry_id`
    - 写 `quotation_reviews` 一条
 4. 提交
+
+**withdraw 的数据保留**：`withdraw` 不删 `quotation_items`，目的是给前端展示「上一次提交的明细」作为参考；再次 `submit` 时按上面的流程被重算和覆盖。
 
 ## 7. 审核工作流
 
@@ -427,9 +434,9 @@ draft ────→ submitted ────→ reviewing ────→ approv
 | 动作 | 授权 | 前置 | 后置 | 业务效果 |
 |---|---|---|---|---|
 | `submit` | 业务员（owner） | draft | submitted | 触发引擎计算 + 写入 quotation_items 快照 |
-| `withdraw` | 业务员（owner） | submitted | draft | 清空 reviewer_id；保留 items 便于再 submit |
+| `withdraw` | 业务员（owner） | submitted | draft | 清空 reviewer_id；**保留** `quotation_items` 作为上次提交的参考，再次 submit 时重算覆盖 |
 | `claim` | reviewer | submitted | reviewing | 写入 reviewer_id、review_started_at |
-| `adjust` | reviewer（本人认领的） | reviewing | reviewing | 修改 `adjustment_*` 或逐项 `quotation_items`，diff_json 记录 |
+| `adjust` | reviewer（本人认领的） | reviewing | reviewing | 修改 `adjustment_*` 或直接覆盖 `quotation_items.unit_amount_cny` / `quantity` / `subtotal_cny`；`source_pricing_entry_id` 保留；diff_json 记录前后差异 |
 | `approve` | reviewer（本人认领的） | reviewing | approved | 写 reviewed_at；可触发内部通知 |
 | `reject` | reviewer（本人认领的） | reviewing | rejected | 要求 `reject_reason`；通知 creator |
 | `copy` | 任何人（能看到原单） | 任意 | → 新 draft | 生成新 quotation（新 serial_no），拷贝输入字段，重置金额 |
@@ -560,6 +567,13 @@ REST + `:action` 子路径风格。OpenAPI 3.1 定义在 `packages/shared/openap
 ├── exports/
 │   └── GET   /exports/{id}/download             (签名 + 过期校验)
 │
+├── admin/
+│   ├── GET    /admin/users?q=&role=&page=       (admin)
+│   ├── POST   /admin/users                      (admin) — 创建业务员/审核员/管理员
+│   ├── PATCH  /admin/users/{id}                 (admin) — 改名/角色/启禁用
+│   ├── POST   /admin/users/{id}:reset-password  (admin) — 重置密码返回临时密码
+│   └── GET    /admin/audit-logs?resource_type=&user_id=&from=&to=&page=  (admin)
+│
 └── dashboard/
     └── GET   /dashboard/home                     (分角色聚合视图)
 ```
@@ -685,9 +699,13 @@ apps/web/src/features/
 2. 两个 token 均写入 httpOnly + SameSite=Lax cookie（生产加 Secure）
 3. 前端请求时浏览器自动带 cookie；响应 401 时前端调 `/auth/refresh`；refresh 失败 → 登出
 4. `POST /auth/logout` 清除 cookie + 后端记录 refresh token 黑名单（可选，MVP 不做）
-5. 密码哈希使用 `argon2id`
+5. 密码哈希使用 `argon2id`（参数：memory=64MiB, iterations=3, parallelism=2；`github.com/alexedwards/argon2id` 封装）
 
 **CSRF 防御**：同源 cookie + SameSite=Lax 已经防御大部分；对非 GET 请求要求 header `X-CSRF-Token`（从专门的 csrf cookie 读取，double-submit 模式）。
+
+### 12.1 初始管理员 bootstrap
+
+系统启动时，如果 `users` 表为空，`cmd/server/main.go` 从环境变量 `BOOTSTRAP_ADMIN_EMAIL` 和 `BOOTSTRAP_ADMIN_PASSWORD` 读取并创建第一个 admin 账号；若变量未设置则打印提示并阻塞启动。创建后 admin 可通过 `POST /admin/users` 创建其他用户。
 
 ## 13. 审计日志
 
@@ -728,15 +746,23 @@ services:
   postgres:
     image: postgres:16
     ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: trademark
+      POSTGRES_PASSWORD: trademark
+      POSTGRES_DB: trademark
     volumes: [postgres_data:/var/lib/postgresql/data]
   api:
     build: apps/api
     ports: ["8080:8080"]
     depends_on: [postgres]
     environment:
-      DATABASE_URL: postgres://...
-      JWT_SECRET: ...
+      DATABASE_URL: postgres://trademark:trademark@postgres:5432/trademark?sslmode=disable
+      JWT_ACCESS_SECRET: dev-access-secret
+      JWT_REFRESH_SECRET: dev-refresh-secret
       EXPORT_STORAGE_ROOT: /data/exports
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: change-me-on-first-login
+      CORS_ORIGINS: http://localhost:5173
   web:
     build: apps/web
     ports: ["5173:80"]
@@ -751,6 +777,7 @@ services:
 | `DATABASE_URL` | Postgres 连接串 |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 两个独立 secret |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | 过期时间（默认 15m / 7d）|
+| `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` | 首次启动建表后创建初始 admin |
 | `EXPORT_STORAGE_ROOT` | 导出文件目录 |
 | `EXPORT_TTL_HOURS` | 导出文件过期（默认 24）|
 | `COOKIE_SECURE` | 生产 true |
