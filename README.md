@@ -112,6 +112,28 @@ make test
 cd apps/api && go test -tags=integration ./...   # requires Docker
 ```
 
+### Auth smoke test (manual)
+
+```bash
+make up
+sleep 15   # wait for migrations + bootstrap admin
+
+# login; cookie jar gets tm_access_token / tm_refresh_token / tm_csrf_token
+curl -sS -c /tmp/tm-cookies.txt \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@example.com","password":"change-me-on-first-login"}' \
+     http://localhost:8080/api/v1/auth/login
+
+# current user
+curl -sS -b /tmp/tm-cookies.txt http://localhost:8080/api/v1/auth/me
+
+# admin: list users (needs CSRF for non-GET; GET omitted)
+curl -sS -b /tmp/tm-cookies.txt 'http://localhost:8080/api/v1/admin/users'
+
+make down
+rm /tmp/tm-cookies.txt
+```
+
 ## Sponsoring this project ❤️
 
 If you find this project helpful or use this in your own work, consider [sponsoring me](https://github.com/sponsors/satnaing) to support development and maintenance. You can [buy me a coffee](https://buymeacoffee.com/satnaing) as well. Don’t worry, every penny helps. Thank you! 🙏

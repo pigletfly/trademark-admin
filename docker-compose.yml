@@ -27,6 +27,14 @@ services:
       HTTP_LISTEN_ADDR: ":8080"
       LOG_LEVEL: debug
       APP_ENV: development
+      JWT_ACCESS_SECRET: dev-access-secret-replace-me
+      JWT_REFRESH_SECRET: dev-refresh-secret-replace-me
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 168h
+      COOKIE_SECURE: "false"
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: change-me-on-first-login
+      CORS_ORIGINS: http://localhost:5173
     ports:
       - "8080:8080"
 
