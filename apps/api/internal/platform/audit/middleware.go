@@ -41,7 +41,7 @@ func Middleware(repo *Repository, getUserID UserProvider, log *slog.Logger) gin.
 			Action:       c.Request.Method + " " + c.FullPath(),
 			ResourceType: c.FullPath(),
 			ResourceID:   c.Param("id"),
-			ChangesJSON:  body,
+			ChangesJSON:  JSONB(body),
 			IP:           c.ClientIP(),
 			UserAgent:    c.Request.UserAgent(),
 			CreatedAt:    time.Now(),
