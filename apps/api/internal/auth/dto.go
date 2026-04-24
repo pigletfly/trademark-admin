@@ -29,3 +29,26 @@ func ToResponse(u *User) UserResponse {
 		Status: u.Status,
 	}
 }
+
+// CreateUserRequest models POST /admin/users body.
+type CreateUserRequest struct {
+	Name     string `json:"name" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Phone    string `json:"phone"`
+	RoleCode string `json:"role" binding:"required,oneof=salesperson reviewer admin"`
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// UpdateUserRequest models PATCH /admin/users/{id} body. All fields optional.
+type UpdateUserRequest struct {
+	Name     *string `json:"name"`
+	Phone    *string `json:"phone"`
+	RoleCode *string `json:"role" binding:"omitempty,oneof=salesperson reviewer admin"`
+	Status   *string `json:"status" binding:"omitempty,oneof=active disabled"`
+}
+
+// ResetPasswordResponse is returned from the admin reset endpoint.
+// Contains the freshly generated password — admin is expected to deliver it OOB.
+type ResetPasswordResponse struct {
+	Password string `json:"password"`
+}
