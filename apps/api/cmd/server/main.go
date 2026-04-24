@@ -20,6 +20,7 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/logger"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/database"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/migrator"
+	"github.com/pigletfly/trademark-admin/apps/api/pkg/seeder"
 )
 
 func main() {
@@ -50,6 +51,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = database.Close(db) }()
+
+	// Seed catalog dictionaries (idempotent).
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := seeder.Run(ctx, db, api.SeedFS, "seed/countries.json", "seed/nice_categories.json")
+		cancel()
+		if err != nil {
+			log.Error("seed catalog", "error", err)
+			os.Exit(1)
+		}
+		log.Info("catalog seeded")
+	}
 
 	// Build auth service.
 	authRepo := auth.NewRepository(db)
