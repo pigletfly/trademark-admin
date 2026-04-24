@@ -14,6 +14,8 @@ import (
 
 	api "github.com/pigletfly/trademark-admin/apps/api"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/catalog"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/config"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
@@ -105,12 +107,8 @@ func main() {
 	// API v1 groups.
 	v1 := router.Group("/api/v1")
 	public := v1.Group("")
-	authed := v1.Group("")
-	authed.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)), auth.CSRF())
 
-	auth.RegisterRoutes(public, authed, authHandler)
-
-	// Audit plumbing
+	// Build audit middleware first so both authed and adminGroup can chain it.
 	auditRepo := audit.NewRepository(db)
 	auditMW := audit.Middleware(auditRepo, func(c *gin.Context) (uuid.UUID, bool) {
 		u := auth.CurrentUser(c)
@@ -120,7 +118,24 @@ func main() {
 		return u.ID, true
 	}, log)
 
-	// Admin routes require auth + role=admin + CSRF + audit middleware
+	// Authenticated routes for any logged-in user.
+	authed := v1.Group("")
+	authed.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)), auth.CSRF(), auditMW)
+	auth.RegisterRoutes(public, authed, authHandler)
+
+	// Catalog: read endpoints on authed; write endpoints on adminGroup below.
+	catalogRepo := catalog.NewRepository(db)
+	catalogSvc := catalog.NewService(catalogRepo)
+	catalogHandler := catalog.NewHandler(catalogSvc)
+	catalog.RegisterReadRoutes(authed, catalogHandler)
+
+	// Customers — owner scoping handled inside the service.
+	custRepo := customer.NewRepository(db)
+	custSvc := customer.NewService(custRepo)
+	custHandler := customer.NewHandler(custSvc)
+	customer.RegisterRoutes(authed, custHandler)
+
+	// Admin-only routes: auth + role=admin + CSRF + audit.
 	adminGroup := v1.Group("")
 	adminGroup.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)),
 		auth.RequireRole("admin"),
@@ -130,6 +145,7 @@ func main() {
 	adminUserHandler := auth.NewAdminHandler(auth.NewAdminService(authRepo))
 	auth.RegisterAdminRoutes(adminGroup, adminUserHandler)
 	audit.RegisterAdminRoutes(adminGroup, audit.NewAdminHandler(auditRepo))
+	catalog.RegisterAdminRoutes(adminGroup, catalogHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
