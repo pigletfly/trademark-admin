@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	api "github.com/pigletfly/trademark-admin/apps/api"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/config"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/logger"
@@ -94,6 +96,27 @@ func main() {
 	authed.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)), auth.CSRF())
 
 	auth.RegisterRoutes(public, authed, authHandler)
+
+	// Audit plumbing
+	auditRepo := audit.NewRepository(db)
+	auditMW := audit.Middleware(auditRepo, func(c *gin.Context) (uuid.UUID, bool) {
+		u := auth.CurrentUser(c)
+		if u.ID == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return u.ID, true
+	}, log)
+
+	// Admin routes require auth + role=admin + CSRF + audit middleware
+	adminGroup := v1.Group("")
+	adminGroup.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)),
+		auth.RequireRole("admin"),
+		auth.CSRF(),
+		auditMW,
+	)
+	adminUserHandler := auth.NewAdminHandler(auth.NewAdminService(authRepo))
+	auth.RegisterAdminRoutes(adminGroup, adminUserHandler)
+	audit.RegisterAdminRoutes(adminGroup, audit.NewAdminHandler(auditRepo))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
