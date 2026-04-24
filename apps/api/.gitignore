@@ -3,6 +3,7 @@ bin/
 server
 !cmd/server/
 migrate
+!cmd/migrate/
 seed
 
 # Editor
