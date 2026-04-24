@@ -52,8 +52,8 @@ const queryClient = new QueryClient({
     onError: (error) => {
       if (error instanceof AxiosError) {
         if (error.response?.status === 401) {
-          toast.error('Session expired!')
-          useAuthStore.getState().auth.reset()
+          toast.error('登录状态已失效')
+          useAuthStore.getState().auth.markUnauthenticated()
           const redirect = `${router.history.location.href}`
           router.navigate({ to: '/sign-in', search: { redirect } })
         }

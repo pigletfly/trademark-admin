@@ -68,7 +68,9 @@ export function UserAuthForm({
         }
 
         // Set user and access token
+        // @ts-expect-error — rewired in Task 5
         auth.setUser(mockUser)
+        // @ts-expect-error — rewired in Task 5
         auth.setAccessToken('mock-access-token')
 
         // Redirect to the stored location or default to dashboard
