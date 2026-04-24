@@ -76,28 +76,40 @@ If you want to update components using the Shadcn CLI (e.g., `npx shadcn@latest 
 
 ## Run Locally
 
-Clone the project
+This repo is a pnpm monorepo:
+
+- `apps/web` — React 19 frontend (Vite + TanStack Router + Shadcn)
+- `apps/api` — Go 1.25 backend (Gin + GORM + PostgreSQL)
+- `packages/shared` — shared types and OpenAPI schema (placeholder)
+
+### Prerequisites
+
+- Node 22+, pnpm 10+
+- Go 1.25+
+- Docker Desktop (for postgres + full stack via `docker compose`)
+
+### One-shot dev environment
 
 ```bash
-  git clone https://github.com/satnaing/shadcn-admin.git
+make up          # builds images, starts postgres+api+web
+curl localhost:8080/health
+open http://localhost:5173
+make down        # stop
 ```
 
-Go to the project directory
+### Hot-reload dev (recommended)
 
 ```bash
-  cd shadcn-admin
+docker compose up -d postgres   # only postgres
+make api                        # go run backend, watches nothing — restart manually
+make dev                        # vite dev server (HMR)
 ```
 
-Install dependencies
+### Tests
 
 ```bash
-  pnpm install
-```
-
-Start the server
-
-```bash
-  pnpm run dev
+make test
+cd apps/api && go test -tags=integration ./...   # requires Docker
 ```
 
 ## Sponsoring this project ❤️
