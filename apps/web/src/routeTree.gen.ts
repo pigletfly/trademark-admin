@@ -35,6 +35,7 @@ import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_a
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedCustomersIdRouteImport } from './routes/_authenticated/customers/$id'
+import { Route as AuthenticatedCatalogNiceCategoriesRouteImport } from './routes/_authenticated/catalog/nice-categories'
 import { Route as AuthenticatedCatalogCountriesRouteImport } from './routes/_authenticated/catalog/countries'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
@@ -176,6 +177,12 @@ const AuthenticatedCustomersIdRoute =
     path: '/customers/$id',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedCatalogNiceCategoriesRoute =
+  AuthenticatedCatalogNiceCategoriesRouteImport.update({
+    id: '/catalog/nice-categories',
+    path: '/catalog/nice-categories',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedCatalogCountriesRoute =
   AuthenticatedCatalogCountriesRouteImport.update({
     id: '/catalog/countries',
@@ -197,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/catalog/countries': typeof AuthenticatedCatalogCountriesRoute
+  '/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -224,6 +232,7 @@ export interface FileRoutesByTo {
   '/503': typeof errors503Route
   '/': typeof AuthenticatedIndexRoute
   '/catalog/countries': typeof AuthenticatedCatalogCountriesRoute
+  '/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -254,6 +263,7 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/catalog/countries': typeof AuthenticatedCatalogCountriesRoute
+  '/_authenticated/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/_authenticated/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -284,6 +294,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/catalog/countries'
+    | '/catalog/nice-categories'
     | '/customers/$id'
     | '/errors/$error'
     | '/settings/account'
@@ -311,6 +322,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/'
     | '/catalog/countries'
+    | '/catalog/nice-categories'
     | '/customers/$id'
     | '/errors/$error'
     | '/settings/account'
@@ -340,6 +352,7 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/'
     | '/_authenticated/catalog/countries'
+    | '/_authenticated/catalog/nice-categories'
     | '/_authenticated/customers/$id'
     | '/_authenticated/errors/$error'
     | '/_authenticated/settings/account'
@@ -553,6 +566,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCustomersIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/catalog/nice-categories': {
+      id: '/_authenticated/catalog/nice-categories'
+      path: '/catalog/nice-categories'
+      fullPath: '/catalog/nice-categories'
+      preLoaderRoute: typeof AuthenticatedCatalogNiceCategoriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/catalog/countries': {
       id: '/_authenticated/catalog/countries'
       path: '/catalog/countries'
@@ -590,6 +610,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedCatalogCountriesRoute: typeof AuthenticatedCatalogCountriesRoute
+  AuthenticatedCatalogNiceCategoriesRoute: typeof AuthenticatedCatalogNiceCategoriesRoute
   AuthenticatedCustomersIdRoute: typeof AuthenticatedCustomersIdRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
@@ -604,6 +625,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedCatalogCountriesRoute: AuthenticatedCatalogCountriesRoute,
+  AuthenticatedCatalogNiceCategoriesRoute:
+    AuthenticatedCatalogNiceCategoriesRoute,
   AuthenticatedCustomersIdRoute: AuthenticatedCustomersIdRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
