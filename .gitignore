@@ -41,3 +41,9 @@ apps/api/migrate
 
 # Superpowers / feature worktrees
 .worktrees/
+
+# Some developers have a global `[Ll]ib` rule (Xcode convention) in
+# ~/.gitignore that accidentally excludes our frontend's apps/web/src/lib/.
+# Force-track it here so this repo is unaffected by that global rule.
+!apps/web/src/lib/
+!apps/web/src/lib/**
