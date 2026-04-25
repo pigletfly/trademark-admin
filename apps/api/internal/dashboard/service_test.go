@@ -157,3 +157,28 @@ func TestSummary_ReviewerSeesFirm(t *testing.T) {
 		t.Fatalf("firm new customers 30d = %d, want 2 (alice's recent + bob's)", out.NewCustomersLast30Days)
 	}
 }
+
+// An unknown/empty role must default to self scope — never firm. This
+// protects against future role codes that are added without also
+// updating the allowlist here.
+func TestSummary_UnknownRoleDefaultsToSelf(t *testing.T) {
+	db := bootPg(t)
+	alice, _ := seed(t, db)
+	svc := dashboard.NewService(quotation.NewRepository(db), customer.NewRepository(db))
+
+	for _, role := range []string{"", "superadmin", "future-role"} {
+		out, err := svc.Summary(context.Background(), alice, role)
+		if err != nil {
+			t.Fatalf("role=%q summary: %v", role, err)
+		}
+		if out.Scope != "self" {
+			t.Fatalf("role=%q scope = %q, want self", role, out.Scope)
+		}
+		// Must NOT include bob's submitted quotation.
+		for _, c := range out.QuotationsByStatus {
+			if c.Status == quotation.StatusSubmitted && c.Count > 0 {
+				t.Fatalf("role=%q leaked bob's submitted count: %d", role, c.Count)
+			}
+		}
+	}
+}

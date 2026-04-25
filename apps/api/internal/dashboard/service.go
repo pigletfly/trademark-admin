@@ -25,11 +25,13 @@ func NewService(q *quotation.Repository, c *customer.Repository) *Service {
 // the scope is narrowed to userID; otherwise the firm-wide numbers are
 // returned.
 func (s *Service) Summary(ctx context.Context, userID uuid.UUID, role string) (Summary, error) {
-	var owner *uuid.UUID
-	scope := "firm"
-	if role == "salesperson" {
-		owner = &userID
-		scope = "self"
+	// Default to the restrictive self scope; only reviewer/admin lift
+	// the filter. An unknown or empty role must not see firm-wide data.
+	owner := &userID
+	scope := "self"
+	if role == "reviewer" || role == "admin" {
+		owner = nil
+		scope = "firm"
 	}
 
 	counts, err := s.quotRepo.CountByStatus(ctx, owner)
