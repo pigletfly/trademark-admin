@@ -21,10 +21,20 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/logger"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/quotation"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/database"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/migrator"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/seeder"
 )
+
+// pricingRepoAdapter bridges pricing.Repository.ListActive(ctx, ActiveFilter)
+// into the pricingRepo interface that quotation.Service expects
+// (ListActive(ctx, *uuid.UUID)).
+type pricingRepoAdapter struct{ *pricing.Repository }
+
+func (a pricingRepoAdapter) ListActive(ctx context.Context, countryID *uuid.UUID) ([]pricing.PricingEntry, error) {
+	return a.Repository.ListActive(ctx, pricing.ActiveFilter{CountryID: countryID})
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -161,6 +171,15 @@ func main() {
 	audit.RegisterAdminRoutes(adminGroup, audit.NewAdminHandler(auditRepo))
 	catalog.RegisterAdminRoutes(adminGroup, catalogHandler)
 	pricing.RegisterAdminRoutes(adminGroup, pricingHandler)
+
+	// Quotations — any authed user creates/lists own; reviewer+admin
+	// sees all + approves/rejects. Salesperson ownership is enforced
+	// inside the handler layer.
+	quotRepo := quotation.NewRepository(db)
+	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	quotHandler := quotation.NewHandler(quotSvc)
+	quotation.RegisterAuthedRoutes(authed, quotHandler)
+	quotation.RegisterReviewerRoutes(reviewerAdminGroup, quotHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
