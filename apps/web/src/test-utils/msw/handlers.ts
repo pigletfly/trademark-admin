@@ -434,7 +434,7 @@ export const defaultHandlers = [
     return HttpResponse.json({
       items: [
         {
-          id: 'c_cn_01',
+          id: '00000000-0000-0000-0000-000000000100',
           code: 'CN',
           name_zh: '中国',
           name_en: 'China',
@@ -479,4 +479,56 @@ export function seedPricingEntry(p: {
     created_at: now,
     updated_at: now,
   })
+}
+
+// seedCustomer pushes a customer row so components reading /customers see it.
+export function seedCustomer(p: { id?: string; name?: string } = {}): string {
+  const id = p.id ?? randomUUID()
+  const now = new Date().toISOString()
+  customers.push({
+    id,
+    name: p.name ?? 'Acme',
+    industry: null,
+    is_returning: false,
+    price_sensitive: false,
+    contact_name: null,
+    contact_phone: null,
+    contact_email: null,
+    notes: null,
+    created_by: adminUser.id,
+    created_at: now,
+    updated_at: now,
+  })
+  return id
+}
+
+// seedQuotationDraft pushes a draft quotation directly so tests can skip
+// the form-filling UI and exercise the detail-page state-machine flow.
+export function seedQuotationDraft(p: {
+  id?: string
+  customer_id: string
+  country_id: string
+  service_tier: 'basic' | 'standard' | 'premium'
+}): string {
+  const id = p.id ?? randomUUID()
+  const now = new Date().toISOString()
+  quotations.push({
+    id,
+    customer_id: p.customer_id,
+    country_id: p.country_id,
+    service_tier: p.service_tier,
+    status: 'draft',
+    snapshot: null,
+    total_cny_cents: null,
+    signature: null,
+    submitted_at: null,
+    reviewed_at: null,
+    reviewed_by: null,
+    review_comment: null,
+    notes: null,
+    created_by: adminUser.id,
+    created_at: now,
+    updated_at: now,
+  })
+  return id
 }
