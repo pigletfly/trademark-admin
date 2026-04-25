@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getRouteApi } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
@@ -9,11 +9,18 @@ import { useCustomersList } from './hooks'
 import { CustomersTable } from './components/customers-table'
 import { CustomerFormDialog } from './components/customer-form-dialog'
 
-const route = getRouteApi('/_authenticated/customers/')
+type CustomersSearch = {
+  q?: string
+  page?: number
+  page_size?: number
+}
 
 export function Customers() {
-  const search = route.useSearch()
-  const navigate = route.useNavigate()
+  // strict:false so this component can also render under the integration
+  // test's ad-hoc router (where the route id is /customers, not
+  // /_authenticated/customers/).
+  const search = useSearch({ strict: false }) as CustomersSearch
+  const navigate = useNavigate()
   const query = {
     q: search.q ?? '',
     page: search.page ?? 1,
@@ -22,8 +29,11 @@ export function Customers() {
   const { data, isLoading } = useCustomersList(query)
   const [createOpen, setCreateOpen] = useState(false)
 
-  const setSearch = (patch: Partial<typeof search>) =>
-    navigate({ search: (old) => ({ ...old, ...patch }), replace: false })
+  const setSearch = (patch: Partial<CustomersSearch>) =>
+    navigate({
+      search: ((old: CustomersSearch) => ({ ...old, ...patch })) as never,
+      replace: false,
+    })
 
   return (
     <>
