@@ -1,0 +1,75 @@
+package quotation
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// CreateRequest is the POST /quotations body. Creates a new draft.
+type CreateRequest struct {
+	CustomerID  uuid.UUID `json:"customer_id" binding:"required"`
+	CountryID   uuid.UUID `json:"country_id"  binding:"required"`
+	ServiceTier string    `json:"service_tier" binding:"required"`
+	Notes       *string   `json:"notes"`
+}
+
+// UpdateDraftRequest patches a draft's editable fields. Only applicable
+// while status == draft.
+type UpdateDraftRequest struct {
+	CustomerID  *uuid.UUID `json:"customer_id"`
+	CountryID   *uuid.UUID `json:"country_id"`
+	ServiceTier *string    `json:"service_tier"`
+	Notes       *string    `json:"notes"`
+}
+
+// ReviewRequest is the body for approve/reject. Comment is optional but
+// strongly recommended when rejecting.
+type ReviewRequest struct {
+	Comment *string `json:"comment"`
+}
+
+// SnapshotLine is one priced fee item. Shape mirrors pricing.CalcLine.
+type SnapshotLine struct {
+	FeeItem        string `json:"fee_item"`
+	AmountCNYCents int64  `json:"amount_cny_cents"`
+}
+
+// Snapshot is what's persisted in snapshot_json. Signature + total live
+// in their own columns for indexing, but are duplicated here so the
+// JSONB blob is self-contained for exports later.
+type Snapshot struct {
+	Lines         []SnapshotLine `json:"lines"`
+	TotalCNYCents int64          `json:"total_cny_cents"`
+	Signature     string         `json:"signature"`
+}
+
+// Response is the GET response. Shape is flat for easy consumption.
+type Response struct {
+	ID            uuid.UUID  `json:"id"`
+	CustomerID    uuid.UUID  `json:"customer_id"`
+	CountryID     uuid.UUID  `json:"country_id"`
+	ServiceTier   string     `json:"service_tier"`
+	Status        Status     `json:"status"`
+	Snapshot      *Snapshot  `json:"snapshot,omitempty"`
+	TotalCNYCents *int64     `json:"total_cny_cents,omitempty"`
+	Signature     *string    `json:"signature,omitempty"`
+	SubmittedAt   *time.Time `json:"submitted_at,omitempty"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
+	ReviewedBy    *uuid.UUID `json:"reviewed_by,omitempty"`
+	ReviewComment *string    `json:"review_comment,omitempty"`
+	Notes         *string    `json:"notes,omitempty"`
+	CreatedBy     uuid.UUID  `json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// HistoryEntry is one row in the transition log, returned by the
+// history endpoint.
+type HistoryEntry struct {
+	FromStatus Status     `json:"from_status"`
+	ToStatus   Status     `json:"to_status"`
+	ActorID    *uuid.UUID `json:"actor_id,omitempty"`
+	Comment    *string    `json:"comment,omitempty"`
+	At         time.Time  `json:"at"`
+}

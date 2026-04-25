@@ -1,0 +1,58 @@
+package quotation
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
+)
+
+// Status enumerates the finite set of quotation states. Keep in sync with
+// the CHECK constraint in migration 000004.
+type Status string
+
+const (
+	StatusDraft     Status = "draft"
+	StatusSubmitted Status = "submitted"
+	StatusApproved  Status = "approved"
+	StatusRejected  Status = "rejected"
+	StatusCancelled Status = "cancelled"
+)
+
+// Quotation mirrors the quotations table.
+type Quotation struct {
+	ID              uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	CustomerID      uuid.UUID  `gorm:"type:uuid;not null;index"`
+	CountryID       uuid.UUID  `gorm:"type:uuid;not null"`
+	ServiceTier     string     `gorm:"not null"`
+	Status          Status     `gorm:"not null;default:draft"`
+	SnapshotJSON    audit.JSONB `gorm:"type:jsonb"`
+	TotalCNYCents   *int64
+	Signature       *string
+	SubmittedAt     *time.Time
+	ReviewedAt      *time.Time
+	ReviewedBy      *uuid.UUID `gorm:"type:uuid"`
+	ReviewComment   *string
+	Notes           *string
+	CreatedBy       uuid.UUID `gorm:"type:uuid;not null"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
+}
+
+func (Quotation) TableName() string { return "quotations" }
+
+// StatusHistory mirrors quotation_status_history. Rows are append-only.
+type StatusHistory struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	QuotationID uuid.UUID  `gorm:"type:uuid;not null;index"`
+	FromStatus  Status     `gorm:"not null"`
+	ToStatus    Status     `gorm:"not null"`
+	ActorID     *uuid.UUID `gorm:"type:uuid"`
+	Comment     *string
+	At          time.Time
+}
+
+func (StatusHistory) TableName() string { return "quotation_status_history" }
