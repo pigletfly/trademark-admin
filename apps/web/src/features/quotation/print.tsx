@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { useParams } from '@tanstack/react-router'
+import { useCustomer } from '@/features/customers/hooks'
+import { useCountries } from '@/features/catalog/hooks/use-countries'
 import { useQuotation } from './hooks'
 import { QuotationSnapshotView } from './components/quotation-snapshot'
 
@@ -10,14 +12,18 @@ import { QuotationSnapshotView } from './components/quotation-snapshot'
 export function QuotationPrint() {
   const params = useParams({ strict: false }) as { id: string }
   const { data: q, isLoading } = useQuotation(params.id)
+  const { data: customer } = useCustomer(q?.customer_id ?? '')
+  const { data: countries } = useCountries(true)
+  const country = countries?.find((c) => c.id === q?.country_id)
 
   useEffect(() => {
-    if (q) {
-      // Defer until next paint so the DOM is laid out.
+    // Defer until customer + country are resolved so the dialog shows
+    // human-readable names rather than bare UUIDs.
+    if (q && customer && country) {
       const t = setTimeout(() => window.print(), 200)
       return () => clearTimeout(t)
     }
-  }, [q])
+  }, [q, customer, country])
 
   if (isLoading) return <p className='p-8'>加载中…</p>
   if (!q) return <p className='p-8'>未找到报价</p>
@@ -38,9 +44,11 @@ export function QuotationPrint() {
         <h2 className='mb-2 text-lg font-semibold'>1. 基本信息 / Basic Info</h2>
         <dl className='grid grid-cols-4 gap-1 text-sm'>
           <dt className='col-span-1 text-gray-600'>客户 / Customer</dt>
-          <dd className='col-span-3'>{q.customer_id}</dd>
+          <dd className='col-span-3'>{customer?.name ?? q.customer_id}</dd>
           <dt className='col-span-1 text-gray-600'>国家 / Country</dt>
-          <dd className='col-span-3'>{q.country_id}</dd>
+          <dd className='col-span-3'>
+            {country ? `${country.code} ${country.name_zh} / ${country.name_en}` : q.country_id}
+          </dd>
           <dt className='col-span-1 text-gray-600'>服务级别 / Tier</dt>
           <dd className='col-span-3'>{q.service_tier}</dd>
           <dt className='col-span-1 text-gray-600'>状态 / Status</dt>
