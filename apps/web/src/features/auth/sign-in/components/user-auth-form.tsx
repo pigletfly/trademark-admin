@@ -30,6 +30,16 @@ interface UserAuthFormProps extends React.HTMLAttributes<HTMLFormElement> {
   redirectTo?: string
 }
 
+// Only allow same-origin absolute paths (must start with a single "/").
+// Prevents `?redirect=//evil.com` or `?redirect=https://evil.com` from
+// bouncing a freshly-logged-in user off the app.
+function safeRedirect(target?: string): string {
+  if (!target) return '/'
+  if (!target.startsWith('/')) return '/'
+  if (target.startsWith('//')) return '/'
+  return target
+}
+
 export function UserAuthForm({
   className,
   redirectTo,
@@ -49,7 +59,7 @@ export function UserAuthForm({
       {
         onSuccess: (user) => {
           toast.success(`欢迎回来，${user.name}`)
-          navigate({ to: redirectTo || '/', replace: true })
+          navigate({ to: safeRedirect(redirectTo), replace: true })
         },
         onError: (err) => {
           if (err instanceof AxiosError) {

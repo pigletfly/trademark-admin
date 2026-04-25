@@ -111,4 +111,31 @@ describe('UserAuthForm', () => {
       })
     )
   })
+
+  it.each([
+    ['protocol-relative //evil.com', '//evil.com'],
+    ['absolute https://evil.com', 'https://evil.com'],
+    ['javascript scheme', 'javascript:alert(1)'],
+    ['bare host', 'evil.com'],
+  ])('falls back to "/" when redirectTo is %s', async (_label, redirectTo) => {
+    vi.clearAllMocks()
+    useAuthStore.getState().auth.reset()
+
+    const { getByRole, getByLabelText } = await render(
+      <QueryClientProvider client={queryClient}>
+        <UserAuthForm redirectTo={redirectTo} />
+      </QueryClientProvider>
+    )
+
+    await userEvent.fill(
+      getByRole('textbox', { name: /邮箱/i }),
+      'admin@example.com'
+    )
+    await userEvent.fill(getByLabelText('密码'), 'password123')
+    await userEvent.click(getByRole('button', { name: /登录/i }))
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ to: '/', replace: true })
+    )
+  })
 })
