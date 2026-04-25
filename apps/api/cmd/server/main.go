@@ -184,8 +184,10 @@ func main() {
 	quotation.RegisterReviewerRoutes(reviewerAdminGroup, quotHandler)
 
 	// Export — any authed user may download their own; reviewer/admin
-	// may download any. Only approved quotations are exportable.
-	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo)
+	// may download any. Only approved quotations are exportable. The
+	// POST /export + public download wiring (Service + Signer) is added
+	// in a later task; legacy GET /export.docx keeps working with nil deps.
+	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo, nil, nil)
 	export.RegisterRoutes(authed, exportHandler)
 
 	// Dashboard — any authed user. Scope (self vs firm) is decided

@@ -68,6 +68,24 @@ func (a pricingRepoAdapter) ListActive(ctx context.Context, countryID *uuid.UUID
 	return a.Repository.ListActive(ctx, pricing.ActiveFilter{CountryID: countryID})
 }
 
+// wireDomainServices builds the quotation / customer / catalog
+// dependencies the export.Handler needs. Extracted so both the legacy
+// and new tests share one code path for assembling these.
+func wireDomainServices(t *testing.T, db *gorm.DB) (
+	*customer.Service,
+	*quotation.Service,
+	*catalog.Repository,
+) {
+	t.Helper()
+	quotRepo := quotation.NewRepository(db)
+	pRepo := pricing.NewRepository(db)
+	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pRepo})
+	custRepo := customer.NewRepository(db)
+	custSvc := customer.NewService(custRepo)
+	catRepo := catalog.NewRepository(db)
+	return custSvc, quotSvc, catRepo
+}
+
 func TestExportDOCX_RejectsDraftWith422(t *testing.T) {
 	db := bootPg(t)
 	gin.SetMode(gin.TestMode)
@@ -180,7 +198,8 @@ func TestExportDOCX_HappyPath_ReturnsZipWithChineseCustomerName(t *testing.T) {
 }
 
 // buildRouter builds a Gin router with quotation + export + auth
-// middleware injecting the given user.
+// middleware injecting the given user. Legacy helper — exercises only
+// the GET /export.docx path, so svc+signer are nil.
 func buildRouter(t *testing.T, db *gorm.DB, userID uuid.UUID, role string) *gin.Engine {
 	t.Helper()
 	r := gin.New()
@@ -188,20 +207,179 @@ func buildRouter(t *testing.T, db *gorm.DB, userID uuid.UUID, role string) *gin.
 		c.Set("auth.currentUser", auth.CurrentUserSummary{ID: userID, Role: role})
 		c.Next()
 	})
-
-	quotRepo := quotation.NewRepository(db)
-	pRepo := pricing.NewRepository(db)
-	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pRepo})
-
-	custRepo := customer.NewRepository(db)
-	custSvc := customer.NewService(custRepo)
-
-	catRepo := catalog.NewRepository(db)
-
-	h := export.NewHandler(quotSvc, custSvc, catRepo)
+	custSvc, quotSvc, catRepo := wireDomainServices(t, db)
+	h := export.NewHandler(quotSvc, custSvc, catRepo, nil, nil)
 	grp := r.Group("/api/v1")
 	export.RegisterRoutes(grp, h)
 	return r
+}
+
+// --- New route tests: POST /quotations/:id/export + GET /exports/:id/download ---
+
+// testSigningSecret is 32 bytes exactly — the minimum Signer accepts.
+var testSigningSecret = []byte("test-secret-32-bytes-min-length!")
+
+// buildNewRouter wires a full Handler with Service + Signer and mounts
+// BOTH authed and public groups so a single test can exercise end-to-end
+// export + download flows. The authed group is synthetic: we skip
+// RequireAuth and inject a current user directly.
+func buildNewRouter(
+	t *testing.T,
+	db *gorm.DB,
+	pdfRenderer export.PDFRenderer,
+	userID uuid.UUID,
+	role string,
+) (*gin.Engine, *export.Service, *export.Signer, *export.Handler) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	repo := export.NewRepository(db)
+	storage := export.NewStorage(t.TempDir())
+	svc := export.NewService(repo, storage, pdfRenderer, time.Hour)
+	signer := export.NewSigner(testSigningSecret)
+
+	custSvc, quotSvc, catRepo := wireDomainServices(t, db)
+	h := export.NewHandler(quotSvc, custSvc, catRepo, svc, signer)
+
+	r := gin.New()
+	// Public group: NO auth middleware.
+	public := r.Group("/api/v1")
+	export.RegisterPublicRoutes(public, h)
+
+	// Authed group: inject a user so handler's role/ownership check passes.
+	authed := r.Group("/api/v1")
+	authed.Use(func(c *gin.Context) {
+		c.Set("auth.currentUser", auth.CurrentUserSummary{ID: userID, Role: role})
+		c.Next()
+	})
+	export.RegisterAuthedRoutes(authed, h)
+	return r, svc, signer, h
+}
+
+func TestHandler_Export_PDF_ReturnsSignedURL(t *testing.T) {
+	db := bootPg(t)
+	qid, actorID := seedApprovedQuotation(t, db)
+
+	fakePDF := &fakePDFRenderer{out: []byte("%PDF-fake")}
+	r, _, _, _ := buildNewRouter(t, db, fakePDF, actorID, "admin")
+
+	body := `{"format":"pdf","language":"bilingual"}`
+	req := httptest.NewRequest("POST",
+		"/api/v1/quotations/"+qid.String()+"/export",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var out export.ExportFileDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Format != export.FormatPDF {
+		t.Errorf("format: got %q want pdf", out.Format)
+	}
+	if out.Language != export.LanguageBilingual {
+		t.Errorf("language: got %q want bilingual", out.Language)
+	}
+	if out.QuotationID != qid {
+		t.Errorf("quotation id: got %s want %s", out.QuotationID, qid)
+	}
+	if out.DownloadURL == "" {
+		t.Errorf("missing download_url")
+	}
+	if !strings.HasPrefix(out.DownloadURL, "/api/v1/exports/"+out.ID.String()+"/download?token=") {
+		t.Errorf("unexpected download_url: %s", out.DownloadURL)
+	}
+	if out.SHA256 == "" {
+		t.Errorf("missing sha256")
+	}
+	if out.FileSize <= 0 {
+		t.Errorf("unexpected file size %d", out.FileSize)
+	}
+}
+
+func TestHandler_Download_WithValidToken(t *testing.T) {
+	db := bootPg(t)
+	qid, actorID := seedApprovedQuotation(t, db)
+
+	fakePDF := &fakePDFRenderer{out: []byte("%PDF-fake-body")}
+	r, svc, signer, _ := buildNewRouter(t, db, fakePDF, actorID, "admin")
+
+	// Generate directly (no HTTP) so the download test isolates its concerns.
+	view := baseView()
+	view.QuotationID = qid.String()
+	f, err := svc.GeneratePDF(context.Background(), view, export.LanguageBilingual, qid, actorID)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	tok := signer.Sign(f.ID, f.ExpiresAt)
+
+	req := httptest.NewRequest("GET",
+		"/api/v1/exports/"+f.ID.String()+"/download?token="+tok, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Errorf("content-type: got %q want application/pdf", got)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+		t.Errorf("content-disposition: got %q want attachment", cd)
+	}
+	if got := w.Header().Get("X-Content-SHA256"); got != f.SHA256 {
+		t.Errorf("sha header: got %q want %q", got, f.SHA256)
+	}
+	if w.Body.String() != "%PDF-fake-body" {
+		t.Errorf("body mismatch: got %q", w.Body.String())
+	}
+}
+
+func TestHandler_Download_BadToken(t *testing.T) {
+	db := bootPg(t)
+	_, actorID := seedApprovedQuotation(t, db)
+
+	r, _, _, _ := buildNewRouter(t, db, &fakePDFRenderer{}, actorID, "admin")
+
+	// Invalid token + random export id → 403.
+	req := httptest.NewRequest("GET",
+		"/api/v1/exports/"+uuid.New().String()+"/download?token=bogus", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "ERR_INVALID_TOKEN") {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+func TestHandler_Export_InvalidOpts(t *testing.T) {
+	db := bootPg(t)
+	qid, actorID := seedApprovedQuotation(t, db)
+
+	r, _, _, _ := buildNewRouter(t, db, &fakePDFRenderer{}, actorID, "admin")
+
+	// Unknown format + unknown language — both rejected.
+	body := `{"format":"jpeg","language":"fr"}`
+	req := httptest.NewRequest("POST",
+		"/api/v1/quotations/"+qid.String()+"/export",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "ERR_INVALID_EXPORT_OPTS") {
+		t.Fatalf("body = %s", w.Body.String())
+	}
 }
 
 // unused import silencer
