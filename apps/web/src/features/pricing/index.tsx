@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getRouteApi } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ProfileDropdown } from '@/components/profile-dropdown'
@@ -20,11 +20,14 @@ import { PricingEntryDrawer } from './components/pricing-entry-drawer'
 import { PricingHistorySheet } from './components/pricing-history-sheet'
 import type { PricingEntry, ServiceTier } from './types'
 
-const route = getRouteApi('/_authenticated/pricing/')
+type PricingSearch = { country_id?: string }
 
 export function Pricing() {
-  const search = route.useSearch()
-  const navigate = route.useNavigate()
+  // strict:false so this component can also render under the integration
+  // test's ad-hoc router (where the route id is /pricing, not
+  // /_authenticated/pricing/).
+  const search = useSearch({ strict: false }) as PricingSearch
+  const navigate = useNavigate()
   const me = useMe()
   const canEdit = me.data?.role === 'admin'
 
@@ -36,7 +39,11 @@ export function Pricing() {
   const [history, setHistory] = useState<{ feeItem: string; tier: ServiceTier } | null>(null)
   const [newFeeItem, setNewFeeItem] = useState('')
 
-  const setCountry = (id: string) => navigate({ search: (s) => ({ ...s, country_id: id }), replace: false })
+  const setCountry = (id: string) =>
+    navigate({
+      search: ((old: PricingSearch) => ({ ...old, country_id: id })) as never,
+      replace: false,
+    })
 
   const startNewEntry = () => {
     const fee = newFeeItem.trim()

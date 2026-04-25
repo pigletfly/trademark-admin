@@ -28,6 +28,21 @@ let customers: Array<{
   updated_at: string
 }> = []
 
+// In-memory pricing entries keyed by id.
+let pricingEntries: Array<{
+  id: string
+  country_id: string
+  service_tier: 'basic' | 'standard' | 'premium'
+  fee_item: string
+  amount_cny_cents: number
+  notes: string | null
+  effective_from: string
+  effective_to: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}> = []
+
 function randomUUID() {
   // minimal RFC-4122 v4; browser polyfills have crypto.randomUUID too.
   const s = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -133,9 +148,96 @@ export const defaultHandlers = [
     return HttpResponse.json(row)
   }),
 
+  // ---- pricing ----
+  http.get('/api/v1/pricing-entries', ({ request }) => {
+    const url = new URL(request.url)
+    const country = url.searchParams.get('country_id')
+    const tier = url.searchParams.get('service_tier')
+    const items = pricingEntries.filter(
+      (p) =>
+        p.effective_to == null &&
+        (!country || p.country_id === country) &&
+        (!tier || p.service_tier === tier)
+    )
+    return HttpResponse.json({ items })
+  }),
+  http.get('/api/v1/pricing-entries/history', ({ request }) => {
+    const url = new URL(request.url)
+    const country = url.searchParams.get('country_id') ?? ''
+    const tier = url.searchParams.get('service_tier') ?? ''
+    const fee = url.searchParams.get('fee_item') ?? ''
+    const items = pricingEntries
+      .filter((p) => p.country_id === country && p.service_tier === tier && p.fee_item === fee)
+      .slice()
+      .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
+    return HttpResponse.json({ items })
+  }),
+  http.post('/api/v1/pricing-entries', async ({ request }) => {
+    const body = (await request.json()) as {
+      country_id: string
+      service_tier: 'basic' | 'standard' | 'premium'
+      fee_item: string
+      amount_cny_cents: number
+      notes?: string | null
+      effective_from: string
+    }
+    for (const p of pricingEntries) {
+      if (
+        p.country_id === body.country_id &&
+        p.service_tier === body.service_tier &&
+        p.fee_item === body.fee_item &&
+        p.effective_to == null
+      ) {
+        p.effective_to = body.effective_from
+      }
+    }
+    const now = new Date().toISOString()
+    const row = {
+      id: 'p_' + Math.random().toString(36).slice(2, 10),
+      country_id: body.country_id,
+      service_tier: body.service_tier,
+      fee_item: body.fee_item,
+      amount_cny_cents: body.amount_cny_cents,
+      notes: body.notes ?? null,
+      effective_from: body.effective_from,
+      effective_to: null,
+      created_by: '00000000-0000-0000-0000-000000000001',
+      created_at: now,
+      updated_at: now,
+    }
+    pricingEntries.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+  http.post('/api/v1/pricing-entries/:id/deprecate', async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as { effective_to?: string }
+    const row = pricingEntries.find((p) => p.id === params.id)
+    if (!row) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    if (row.effective_to) {
+      return HttpResponse.json(
+        { code: 'ERR_ALREADY_DEPRECATED', message: 'already deprecated' },
+        { status: 409 }
+      )
+    }
+    row.effective_to = body.effective_to ?? new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+    return HttpResponse.json(row)
+  }),
+
   // ---- catalog minimal handlers to satisfy sidebar / 403 cases ----
   http.get('/api/v1/catalog/countries', () => {
-    return HttpResponse.json({ items: [] })
+    return HttpResponse.json({
+      items: [
+        {
+          id: 'c_cn_01',
+          code: 'CN',
+          name_zh: '中国',
+          name_en: 'China',
+          is_madrid_member: true,
+          requires_notarization: false,
+          sort_order: 0,
+          enabled: true,
+        },
+      ],
+    })
   }),
   http.get('/api/v1/catalog/nice-categories', () => {
     return HttpResponse.json({ items: [] })
@@ -145,4 +247,5 @@ export const defaultHandlers = [
 export function resetMswState() {
   loggedIn = false
   customers = []
+  pricingEntries = []
 }
