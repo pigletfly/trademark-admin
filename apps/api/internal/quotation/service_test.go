@@ -30,6 +30,9 @@ func (f *fakeRepo) Create(ctx context.Context, q *Quotation) error {
 		f.nextErr = nil
 		return e
 	}
+	if q.ID == uuid.Nil {
+		q.ID = uuid.New()
+	}
 	q.CreatedAt, q.UpdatedAt = time.Now(), time.Now()
 	f.byID[q.ID] = q
 	return nil
@@ -296,6 +299,123 @@ func TestService_Withdraw_ErrorPaths(t *testing.T) {
 		// Still a draft — withdrawing must be rejected.
 		if _, err := svc.Withdraw(context.Background(), q.ID, owner); !errors.Is(err, ErrInvalidTransition) {
 			t.Fatalf("want ErrInvalidTransition, got %v", err)
+		}
+	})
+}
+
+// TestService_Copy_FreshDraftOwnedByActor verifies Copy clones a
+// quotation's *input* fields into a new draft owned by the actor, with
+// all output/review fields left zero. Status of the source is irrelevant
+// (drafts, submitted, approved, rejected, cancelled are all copyable).
+func TestService_Copy_FreshDraftOwnedByActor(t *testing.T) {
+	t.Run("happy path clones input fields only", func(t *testing.T) {
+		svc, repo := newService(nil)
+		userA := uuid.New()
+		userB := uuid.New()
+		customerID := uuid.New()
+		countryID := uuid.New()
+		note := "src note"
+		serial := "Q202604260001"
+		total := int64(12345)
+		sig := "sig-abc"
+		submittedAt := time.Now().Add(-2 * time.Hour)
+		reviewedAt := time.Now().Add(-1 * time.Hour)
+		reviewer := uuid.New()
+		reviewComment := "looks good"
+
+		src := &Quotation{
+			ID:            uuid.New(),
+			CustomerID:    customerID,
+			CountryID:     countryID,
+			ServiceTier:   "basic",
+			Status:        StatusSubmitted,
+			SnapshotJSON:  []byte(`{"lines":[{"fee_item":"application","amount_cny_cents":10000}],"total_cny_cents":10000,"signature":"sig-abc"}`),
+			TotalCNYCents: &total,
+			Signature:     &sig,
+			SerialNo:      &serial,
+			SubmittedAt:   &submittedAt,
+			ReviewedAt:    &reviewedAt,
+			ReviewedBy:    &reviewer,
+			ReviewComment: &reviewComment,
+			Notes:         &note,
+			CreatedBy:     userA,
+		}
+		repo.byID[src.ID] = src
+
+		got, err := svc.Copy(context.Background(), src.ID, userB)
+		if err != nil {
+			t.Fatalf("copy: %v", err)
+		}
+
+		// Cloned input fields.
+		if got.CustomerID != customerID {
+			t.Errorf("CustomerID: got %v want %v", got.CustomerID, customerID)
+		}
+		if got.CountryID != countryID {
+			t.Errorf("CountryID: got %v want %v", got.CountryID, countryID)
+		}
+		if got.ServiceTier != "basic" {
+			t.Errorf("ServiceTier: got %q want basic", got.ServiceTier)
+		}
+		if got.Notes == nil || *got.Notes != "src note" {
+			t.Errorf("Notes: got %v want &\"src note\"", got.Notes)
+		}
+
+		// Actor owns the copy, not the source's owner.
+		if got.CreatedBy != userB {
+			t.Errorf("CreatedBy: got %v want %v (actor)", got.CreatedBy, userB)
+		}
+		if got.Status != StatusDraft {
+			t.Errorf("Status: got %q want draft", got.Status)
+		}
+
+		// Output/review/serial fields are zero.
+		if len(got.SnapshotJSON) != 0 {
+			t.Errorf("SnapshotJSON should be empty, got %s", string(got.SnapshotJSON))
+		}
+		if got.TotalCNYCents != nil {
+			t.Errorf("TotalCNYCents should be nil, got %v", *got.TotalCNYCents)
+		}
+		if got.Signature != nil {
+			t.Errorf("Signature should be nil, got %v", *got.Signature)
+		}
+		if got.SerialNo != nil {
+			t.Errorf("SerialNo should be nil, got %v", *got.SerialNo)
+		}
+		if got.SubmittedAt != nil {
+			t.Errorf("SubmittedAt should be nil, got %v", *got.SubmittedAt)
+		}
+		if got.ReviewedAt != nil {
+			t.Errorf("ReviewedAt should be nil, got %v", *got.ReviewedAt)
+		}
+		if got.ReviewedBy != nil {
+			t.Errorf("ReviewedBy should be nil, got %v", *got.ReviewedBy)
+		}
+		if got.ReviewComment != nil {
+			t.Errorf("ReviewComment should be nil, got %v", *got.ReviewComment)
+		}
+
+		// ID is stamped by repo.Create and distinct from source.
+		if got.ID == uuid.Nil {
+			t.Error("ID should be set by repo.Create")
+		}
+		if got.ID == src.ID {
+			t.Error("copy ID must differ from source ID")
+		}
+
+		// Source was not mutated (defensive check).
+		if src.CreatedBy != userA {
+			t.Errorf("source CreatedBy mutated: got %v want %v", src.CreatedBy, userA)
+		}
+		if src.Status != StatusSubmitted {
+			t.Errorf("source Status mutated: got %q want submitted", src.Status)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		svc, _ := newService(nil)
+		if _, err := svc.Copy(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("want ErrNotFound, got %v", err)
 		}
 	})
 }

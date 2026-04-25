@@ -240,6 +240,36 @@ func (s *Service) Withdraw(ctx context.Context, id, actorID uuid.UUID) (*Quotati
 	return q, nil
 }
 
+// Copy clones a quotation's input fields (customer, country, tier, notes)
+// into a fresh draft owned by actor. The new draft has no snapshot/total/
+// signature — those will be computed when the new draft is itself Submitted
+// (against pricing entries that may have changed since the source was
+// submitted). serial_no is NOT copied; a draft has no serial. The source's
+// status is irrelevant: drafts, submitted, approved, rejected, and
+// cancelled are all copyable. Visibility of the source is enforced by the
+// handler layer; the service performs no ownership check on the actor.
+func (s *Service) Copy(ctx context.Context, sourceID, actorID uuid.UUID) (*Quotation, error) {
+	src, err := s.repo.Get(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if src == nil {
+		return nil, ErrNotFound
+	}
+	q := &Quotation{
+		CustomerID:  src.CustomerID,
+		CountryID:   src.CountryID,
+		ServiceTier: src.ServiceTier,
+		Status:      StatusDraft,
+		Notes:       src.Notes,
+		CreatedBy:   actorID,
+	}
+	if err := s.repo.Create(ctx, q); err != nil {
+		return nil, err
+	}
+	return q, nil
+}
+
 // Adjust mutates a submitted quotation's snapshot in place. Role-gated
 // by the router (reviewer/admin); Service enforces only the status
 // predicate — ownership is deliberately NOT checked because reviewers
