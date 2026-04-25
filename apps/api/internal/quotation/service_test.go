@@ -61,6 +61,11 @@ func (f *fakeRepo) Transition(ctx context.Context, q *Quotation, to Status, acto
 	})
 	return nil
 }
+func (f *fakeRepo) SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error {
+	serial := "Q" + now.UTC().Format("20060102") + "0001"
+	q.SerialNo = &serial
+	return f.Transition(ctx, q, StatusSubmitted, actorID, nil)
+}
 func (f *fakeRepo) List(ctx context.Context, fl ListFilter) ([]Quotation, int64, error) {
 	var out []Quotation
 	for _, q := range f.byID {

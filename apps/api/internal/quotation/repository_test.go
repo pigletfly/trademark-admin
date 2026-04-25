@@ -141,9 +141,11 @@ func TestRepository_TransitionRecordsHistory(t *testing.T) {
 	total := int64(1000)
 	sig := "sig"
 	now := time.Now()
+	serial := "Q202604260001"
 	q.TotalCNYCents = &total
 	q.Signature = &sig
 	q.SubmittedAt = &now
+	q.SerialNo = &serial
 	if err := r.Transition(context.Background(), q, quotation.StatusSubmitted, userID, nil); err != nil {
 		t.Fatalf("transition: %v", err)
 	}
@@ -251,10 +253,12 @@ func TestRepository_TransitionRejectsStaleFrom(t *testing.T) {
 	total := int64(1000)
 	sig := "sig"
 	now := time.Now()
+	serial := "Q202604260001"
 	q.SnapshotJSON = audit.JSONB(snap)
 	q.TotalCNYCents = &total
 	q.Signature = &sig
 	q.SubmittedAt = &now
+	q.SerialNo = &serial
 	if err := r.Transition(context.Background(), q, quotation.StatusSubmitted, userID, nil); err != nil {
 		t.Fatalf("first submit: %v", err)
 	}

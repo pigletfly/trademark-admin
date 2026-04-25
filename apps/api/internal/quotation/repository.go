@@ -49,10 +49,70 @@ func (r *Repository) UpdateDraft(ctx context.Context, id uuid.UUID, patch map[st
 	return nil
 }
 
+// transitionInTx is the transactional body of Transition. It uses the
+// provided tx directly — the CALLER is responsible for the transaction
+// envelope and commit/rollback. Used by Transition (which wraps itself
+// in a tx) and by SubmitWithSerial / other multi-step flows that need
+// to pin several operations to one tx.
+func (r *Repository) transitionInTx(
+	tx *gorm.DB,
+	q *Quotation,
+	to Status,
+	actorID uuid.UUID,
+	comment *string,
+) error {
+	from := q.Status
+	updates := map[string]any{
+		"status":     to,
+		"updated_at": time.Now(),
+	}
+	if q.SnapshotJSON != nil {
+		updates["snapshot_json"] = q.SnapshotJSON
+	}
+	if q.TotalCNYCents != nil {
+		updates["total_cny_cents"] = *q.TotalCNYCents
+	}
+	if q.Signature != nil {
+		updates["signature"] = *q.Signature
+	}
+	if q.SubmittedAt != nil {
+		updates["submitted_at"] = *q.SubmittedAt
+	}
+	if q.ReviewedAt != nil {
+		updates["reviewed_at"] = *q.ReviewedAt
+	}
+	if q.ReviewedBy != nil {
+		updates["reviewed_by"] = *q.ReviewedBy
+	}
+	if q.ReviewComment != nil {
+		updates["review_comment"] = *q.ReviewComment
+	}
+	if q.SerialNo != nil {
+		updates["serial_no"] = *q.SerialNo
+	}
+
+	res := tx.Model(&Quotation{}).
+		Where("id = ? AND status = ?", q.ID, from).
+		Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrInvalidTransition
+	}
+	h := StatusHistory{
+		ID: uuid.New(), QuotationID: q.ID,
+		FromStatus: from, ToStatus: to,
+		ActorID: &actorID, Comment: comment,
+		At: time.Now(),
+	}
+	return tx.Create(&h).Error
+}
+
 // Transition updates the quotation row and appends a StatusHistory row
-// in a single transaction. `q` is assumed to already reflect the target
-// state on all snapshot/reviewer fields — Transition only writes status
-// itself plus the history row.
+// in a single transaction. Preserves the existing signature; new flows
+// that need serial generation or diff payloads use other wrappers that
+// share transitionInTx.
 func (r *Repository) Transition(
 	ctx context.Context,
 	q *Quotation,
@@ -60,55 +120,35 @@ func (r *Repository) Transition(
 	actorID uuid.UUID,
 	comment *string,
 ) error {
-	from := q.Status
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Update the main row with status + any set snapshot/reviewer fields.
-		updates := map[string]any{
-			"status":     to,
-			"updated_at": time.Now(),
+		return r.transitionInTx(tx, q, to, actorID, comment)
+	})
+}
+
+// SubmitWithSerial transitions a draft to submitted while generating
+// and persisting the daily serial_no atomically. Calls GenerateSerialAt
+// inside the SAME transaction that writes the status change and the
+// history row, so the advisory lock + MAX query + UPDATE form one
+// serializable unit.
+//
+// `q` is expected to already carry the fresh snapshot/total/signature/
+// submitted_at fields — SubmitWithSerial does not compute them. Passing
+// a non-draft q is a programmer error; the WHERE status = 'draft'
+// predicate on the inner UPDATE will catch it by returning
+// ErrInvalidTransition.
+func (r *Repository) SubmitWithSerial(
+	ctx context.Context,
+	q *Quotation,
+	actorID uuid.UUID,
+	now time.Time,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		serial, err := GenerateSerialAt(ctx, tx, now)
+		if err != nil {
+			return err
 		}
-		if q.SnapshotJSON != nil {
-			updates["snapshot_json"] = q.SnapshotJSON
-		}
-		if q.TotalCNYCents != nil {
-			updates["total_cny_cents"] = *q.TotalCNYCents
-		}
-		if q.Signature != nil {
-			updates["signature"] = *q.Signature
-		}
-		if q.SubmittedAt != nil {
-			updates["submitted_at"] = *q.SubmittedAt
-		}
-		if q.ReviewedAt != nil {
-			updates["reviewed_at"] = *q.ReviewedAt
-		}
-		if q.ReviewedBy != nil {
-			updates["reviewed_by"] = *q.ReviewedBy
-		}
-		if q.ReviewComment != nil {
-			updates["review_comment"] = *q.ReviewComment
-		}
-		// Guard against lost-update races: if another goroutine flipped
-		// status between Get and here, RowsAffected == 0 and we must
-		// abort before writing the history row. The `WHERE status = ?`
-		// predicate gives us optimistic concurrency on the row.
-		res := tx.Model(&Quotation{}).
-			Where("id = ? AND status = ?", q.ID, from).
-			Updates(updates)
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return ErrInvalidTransition
-		}
-		// Append the history row.
-		h := StatusHistory{
-			ID: uuid.New(), QuotationID: q.ID,
-			FromStatus: from, ToStatus: to,
-			ActorID: &actorID, Comment: comment,
-			At: time.Now(),
-		}
-		return tx.Create(&h).Error
+		q.SerialNo = &serial
+		return r.transitionInTx(tx, q, StatusSubmitted, actorID, nil)
 	})
 }
 

@@ -29,6 +29,7 @@ type repo interface {
 	Get(ctx context.Context, id uuid.UUID) (*Quotation, error)
 	UpdateDraft(ctx context.Context, id uuid.UUID, patch map[string]any) error
 	Transition(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string) error
+	SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error
 	List(ctx context.Context, f ListFilter) ([]Quotation, int64, error)
 	History(ctx context.Context, id uuid.UUID) ([]StatusHistory, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
@@ -173,7 +174,7 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 	q.Signature = &sig
 	q.SubmittedAt = &now
 
-	if err := s.repo.Transition(ctx, q, StatusSubmitted, actorID, nil); err != nil {
+	if err := s.repo.SubmitWithSerial(ctx, q, actorID, now); err != nil {
 		return nil, err
 	}
 	q.Status = StatusSubmitted

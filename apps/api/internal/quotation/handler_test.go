@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -102,6 +103,13 @@ func TestHandler_HappyPath_SubmitThenApprove(t *testing.T) {
 	}
 	if submitted.TotalCNYCents == nil || *submitted.TotalCNYCents != 10000 {
 		t.Fatalf("total = %v, want 10000", submitted.TotalCNYCents)
+	}
+	if submitted.SerialNo == nil {
+		t.Fatalf("expected serial_no on submitted quotation, got nil")
+	}
+	re := regexp.MustCompile(`^Q\d{12}$`)
+	if !re.MatchString(*submitted.SerialNo) {
+		t.Fatalf("serial_no %q doesn't match Q\\d{12}", *submitted.SerialNo)
 	}
 
 	// Seed a reviewer user too.
