@@ -16,6 +16,7 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/catalog"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/export"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/config"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
@@ -180,6 +181,11 @@ func main() {
 	quotHandler := quotation.NewHandler(quotSvc)
 	quotation.RegisterAuthedRoutes(authed, quotHandler)
 	quotation.RegisterReviewerRoutes(reviewerAdminGroup, quotHandler)
+
+	// Export — any authed user may download their own; reviewer/admin
+	// may download any. Only approved quotations are exportable.
+	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo)
+	export.RegisterRoutes(authed, exportHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
