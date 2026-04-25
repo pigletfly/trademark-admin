@@ -20,6 +20,7 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/config"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/logger"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/database"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/migrator"
 	"github.com/pigletfly/trademark-admin/apps/api/pkg/seeder"
@@ -135,6 +136,19 @@ func main() {
 	custHandler := customer.NewHandler(custSvc)
 	customer.RegisterRoutes(authed, custHandler)
 
+	// Pricing entries — reviewer+admin read, admin write.
+	pricingRepo := pricing.NewRepository(db)
+	pricingSvc := pricing.NewService(pricingRepo)
+	pricingHandler := pricing.NewHandler(pricingSvc)
+
+	reviewerAdminGroup := v1.Group("")
+	reviewerAdminGroup.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)),
+		auth.RequireRole("reviewer", "admin"),
+		auth.CSRF(),
+		auditMW,
+	)
+	pricing.RegisterReadRoutes(reviewerAdminGroup, pricingHandler)
+
 	// Admin-only routes: auth + role=admin + CSRF + audit.
 	adminGroup := v1.Group("")
 	adminGroup.Use(auth.RequireAuth([]byte(cfg.JWTAccessSecret)),
@@ -146,6 +160,7 @@ func main() {
 	auth.RegisterAdminRoutes(adminGroup, adminUserHandler)
 	audit.RegisterAdminRoutes(adminGroup, audit.NewAdminHandler(auditRepo))
 	catalog.RegisterAdminRoutes(adminGroup, catalogHandler)
+	pricing.RegisterAdminRoutes(adminGroup, pricingHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
