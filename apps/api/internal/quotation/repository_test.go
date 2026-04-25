@@ -225,5 +225,66 @@ func TestRepository_ListFilters(t *testing.T) {
 	}
 }
 
+// TestRepository_TransitionRejectsStaleFrom verifies that Transition
+// checks RowsAffected and returns ErrInvalidTransition when the row has
+// already moved — so two concurrent Submit calls cannot both append
+// history rows with divergent snapshots.
+func TestRepository_TransitionRejectsStaleFrom(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	q := &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: userID,
+	}
+	if err := r.Create(context.Background(), q); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// First submit wins.
+	snap, _ := json.Marshal(quotation.Snapshot{
+		Lines:         []quotation.SnapshotLine{{FeeItem: "f", AmountCNYCents: 1000}},
+		TotalCNYCents: 1000, Signature: "sig",
+	})
+	total := int64(1000)
+	sig := "sig"
+	now := time.Now()
+	q.SnapshotJSON = audit.JSONB(snap)
+	q.TotalCNYCents = &total
+	q.Signature = &sig
+	q.SubmittedAt = &now
+	if err := r.Transition(context.Background(), q, quotation.StatusSubmitted, userID, nil); err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+
+	// Second caller simulates a racer: still holds a stale in-memory
+	// snapshot claiming status=draft. The guarded UPDATE matches zero
+	// rows now, so Transition must refuse.
+	stale := &quotation.Quotation{
+		ID: q.ID, CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: userID,
+	}
+	stale.SnapshotJSON = audit.JSONB(snap)
+	stale.TotalCNYCents = &total
+	stale.Signature = &sig
+	stale.SubmittedAt = &now
+	err := r.Transition(context.Background(), stale, quotation.StatusSubmitted, userID, nil)
+	if err == nil {
+		t.Fatal("second submit: expected error, got nil — race is silent")
+	}
+	if err != quotation.ErrInvalidTransition {
+		t.Fatalf("want ErrInvalidTransition, got %v", err)
+	}
+
+	// History must NOT contain two rows.
+	hist, _ := r.History(context.Background(), q.ID)
+	if len(hist) != 1 {
+		t.Fatalf("history rows: want 1, got %d — racer leaked a row", len(hist))
+	}
+}
+
 // This silences the unused-import warning if pricing is elided.
 var _ = pricing.ServiceTiers

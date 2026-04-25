@@ -88,10 +88,18 @@ func (r *Repository) Transition(
 		if q.ReviewComment != nil {
 			updates["review_comment"] = *q.ReviewComment
 		}
-		if err := tx.Model(&Quotation{}).
+		// Guard against lost-update races: if another goroutine flipped
+		// status between Get and here, RowsAffected == 0 and we must
+		// abort before writing the history row. The `WHERE status = ?`
+		// predicate gives us optimistic concurrency on the row.
+		res := tx.Model(&Quotation{}).
 			Where("id = ? AND status = ?", q.ID, from).
-			Updates(updates).Error; err != nil {
-			return err
+			Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrInvalidTransition
 		}
 		// Append the history row.
 		h := StatusHistory{
