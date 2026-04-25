@@ -89,3 +89,46 @@ func TestLoad_invalidDuration(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestLoad_ExportDefaults(t *testing.T) {
+	setValidBaseEnv(t)
+	t.Setenv("APP_ENV", "development")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.GotenbergURL != "http://gotenberg:3000" {
+		t.Errorf("gotenberg default: %q", cfg.GotenbergURL)
+	}
+	if cfg.ExportStorageRoot != "/data/exports" {
+		t.Errorf("storage root default: %q", cfg.ExportStorageRoot)
+	}
+	if cfg.ExportTTL != 24*time.Hour {
+		t.Errorf("ttl default: %v", cfg.ExportTTL)
+	}
+	if cfg.ExportSigningSecret == "" {
+		t.Errorf("dev default signing secret empty")
+	}
+}
+
+func TestLoad_Production_RequiresExportSecret(t *testing.T) {
+	setValidBaseEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("EXPORT_SIGNING_SECRET", "") // explicitly empty
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when EXPORT_SIGNING_SECRET empty in production")
+	}
+}
+
+func TestLoad_ExportTTLOverride(t *testing.T) {
+	setValidBaseEnv(t)
+	t.Setenv("EXPORT_TTL", "2h")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.ExportTTL != 2*time.Hour {
+		t.Errorf("ttl override: %v", cfg.ExportTTL)
+	}
+}

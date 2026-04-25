@@ -15,6 +15,11 @@ services:
       timeout: 5s
       retries: 5
 
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports: ["3000:3000"]
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -22,6 +27,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      gotenberg:
+        condition: service_started
     environment:
       DATABASE_URL: postgres://trademark:trademark@postgres:5432/trademark?sslmode=disable
       HTTP_LISTEN_ADDR: ":8080"
@@ -35,8 +42,14 @@ services:
       BOOTSTRAP_ADMIN_EMAIL: admin@example.com
       BOOTSTRAP_ADMIN_PASSWORD: change-me-on-first-login
       CORS_ORIGINS: http://localhost:5173
+      GOTENBERG_URL: http://gotenberg:3000
+      EXPORT_STORAGE_ROOT: /data/exports
+      EXPORT_SIGNING_SECRET: dev-export-signing-secret-32bytes!!
+      EXPORT_TTL: 24h
     ports:
       - "8080:8080"
+    volumes:
+      - export_data:/data/exports
 
   web:
     build:
@@ -49,3 +62,4 @@ services:
 
 volumes:
   postgres_data:
+  export_data:

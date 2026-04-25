@@ -22,6 +22,12 @@ type Config struct {
 
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
+
+	// Export / gotenberg
+	GotenbergURL        string
+	ExportStorageRoot   string
+	ExportSigningSecret string
+	ExportTTL           time.Duration
 }
 
 // Load reads configuration from environment variables and applies defaults.
@@ -61,6 +67,24 @@ func Load() (*Config, error) {
 
 	cfg.BootstrapAdminEmail = os.Getenv("BOOTSTRAP_ADMIN_EMAIL")
 	cfg.BootstrapAdminPassword = os.Getenv("BOOTSTRAP_ADMIN_PASSWORD")
+
+	cfg.GotenbergURL = getenvDefault("GOTENBERG_URL", "http://gotenberg:3000")
+	cfg.ExportStorageRoot = getenvDefault("EXPORT_STORAGE_ROOT", "/data/exports")
+
+	cfg.ExportSigningSecret = os.Getenv("EXPORT_SIGNING_SECRET")
+	if cfg.ExportSigningSecret == "" {
+		// Dev default — prod MUST set its own. The Signer panics on <32-byte secrets.
+		if cfg.AppEnv == "production" {
+			return nil, errors.New("EXPORT_SIGNING_SECRET is required in production")
+		}
+		cfg.ExportSigningSecret = "dev-export-signing-secret-32bytes!!"
+	}
+
+	exportTTL, err := parseDuration("EXPORT_TTL", "24h")
+	if err != nil {
+		return nil, err
+	}
+	cfg.ExportTTL = exportTTL
 
 	return cfg, nil
 }
