@@ -31,6 +31,7 @@ type repo interface {
 	UpdateDraft(ctx context.Context, id uuid.UUID, patch map[string]any) error
 	Transition(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string) error
 	TransitionWithHistory(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string, diffJSON []byte) error
+	Withdraw(ctx context.Context, q *Quotation, actorID uuid.UUID) error
 	SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error
 	List(ctx context.Context, f ListFilter) ([]Quotation, int64, error)
 	History(ctx context.Context, id uuid.UUID) ([]StatusHistory, error)
@@ -208,6 +209,34 @@ func (s *Service) Review(ctx context.Context, id, actorID uuid.UUID, approve boo
 		return nil, err
 	}
 	q.Status = target
+	return q, nil
+}
+
+// Withdraw returns a submitted quotation to draft. Owner-only; reviewers
+// should Reject rather than withdraw. Clears snapshot/total/signature to
+// satisfy chk_quotations_snapshot_when_nondraft for the draft state.
+// serial_no is preserved — a future Submit will reuse or overwrite it.
+func (s *Service) Withdraw(ctx context.Context, id, actorID uuid.UUID) (*Quotation, error) {
+	q, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if q == nil {
+		return nil, ErrNotFound
+	}
+	if q.CreatedBy != actorID {
+		return nil, ErrNotOwner
+	}
+	if q.Status != StatusSubmitted {
+		return nil, ErrInvalidTransition
+	}
+	if err := s.repo.Withdraw(ctx, q, actorID); err != nil {
+		return nil, err
+	}
+	q.Status = StatusDraft
+	q.SnapshotJSON = nil
+	q.TotalCNYCents = nil
+	q.Signature = nil
 	return q, nil
 }
 

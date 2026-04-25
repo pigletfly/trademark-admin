@@ -176,6 +176,47 @@ func (r *Repository) TransitionWithHistory(
 	})
 }
 
+// Withdraw reverts a submitted quotation to draft. It explicitly NULLs
+// snapshot_json/total_cny_cents/signature to satisfy
+// chk_quotations_snapshot_when_nondraft, and preserves serial_no and
+// submitted_at so a later Submit can reuse/overwrite them.
+//
+// Cannot delegate to transitionInTx: that helper only writes columns
+// when the in-memory pointer is non-nil, so it has no explicit NULL
+// path. We write Withdraw inline using a map[string]any (GORM's
+// Updates(map) writes NULL for map values that are literal nil).
+//
+// The guarded UPDATE (WHERE id = ? AND status = 'submitted') returns
+// ErrInvalidTransition if the row is not in submitted state — same
+// concurrency-safety pattern as transitionInTx.
+func (r *Repository) Withdraw(ctx context.Context, q *Quotation, actorID uuid.UUID) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"status":          StatusDraft,
+			"updated_at":      time.Now(),
+			"snapshot_json":   nil,
+			"total_cny_cents": nil,
+			"signature":       nil,
+		}
+		res := tx.Model(&Quotation{}).
+			Where("id = ? AND status = ?", q.ID, StatusSubmitted).
+			Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrInvalidTransition
+		}
+		h := StatusHistory{
+			ID: uuid.New(), QuotationID: q.ID,
+			FromStatus: StatusSubmitted, ToStatus: StatusDraft,
+			ActorID: &actorID, Comment: nil,
+			At: time.Now(),
+		}
+		return tx.Create(&h).Error
+	})
+}
+
 // List returns quotations matching the filter plus the total count.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]Quotation, int64, error) {
 	if f.Page < 1 {

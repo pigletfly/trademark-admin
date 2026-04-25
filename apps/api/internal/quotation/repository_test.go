@@ -290,5 +290,80 @@ func TestRepository_TransitionRejectsStaleFrom(t *testing.T) {
 	}
 }
 
+// TestRepository_WithdrawClearsSnapshotAndKeepsSerial verifies that
+// Withdraw reverts a submitted quotation to draft, NULLs out the
+// snapshot/total/signature columns (required by
+// chk_quotations_snapshot_when_nondraft), preserves serial_no, and
+// appends a status_history row.
+func TestRepository_WithdrawClearsSnapshotAndKeepsSerial(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	// Create draft.
+	q := &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: userID,
+	}
+	if err := r.Create(context.Background(), q); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Transition to submitted with filled snapshot + serial.
+	snap, _ := json.Marshal(quotation.Snapshot{
+		Lines:         []quotation.SnapshotLine{{FeeItem: "f", AmountCNYCents: 1000}},
+		TotalCNYCents: 1000, Signature: "sig",
+	})
+	total := int64(1000)
+	sig := "sig"
+	now := time.Now()
+	serial := "Q202604260001"
+	q.SnapshotJSON = audit.JSONB(snap)
+	q.TotalCNYCents = &total
+	q.Signature = &sig
+	q.SubmittedAt = &now
+	q.SerialNo = &serial
+	if err := r.Transition(context.Background(), q, quotation.StatusSubmitted, userID, nil); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	// Withdraw back to draft.
+	if err := r.Withdraw(context.Background(), q, userID); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+
+	got, err := r.Get(context.Background(), q.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status != quotation.StatusDraft {
+		t.Fatalf("status = %q, want draft", got.Status)
+	}
+	if len(got.SnapshotJSON) != 0 {
+		t.Fatalf("snapshot_json: want nil/empty, got %q", string(got.SnapshotJSON))
+	}
+	if got.TotalCNYCents != nil {
+		t.Fatalf("total_cny_cents: want nil, got %v", *got.TotalCNYCents)
+	}
+	if got.Signature != nil {
+		t.Fatalf("signature: want nil, got %q", *got.Signature)
+	}
+	if got.SerialNo == nil || *got.SerialNo != serial {
+		t.Fatalf("serial_no: want %q preserved, got %v", serial, got.SerialNo)
+	}
+
+	hist, err := r.History(context.Background(), q.ID)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("history: want 2 rows (submit + withdraw), got %d", len(hist))
+	}
+	if hist[1].FromStatus != quotation.StatusSubmitted || hist[1].ToStatus != quotation.StatusDraft {
+		t.Fatalf("withdraw history row: from=%q to=%q, want submitted→draft", hist[1].FromStatus, hist[1].ToStatus)
+	}
+}
+
 // This silences the unused-import warning if pricing is elided.
 var _ = pricing.ServiceTiers

@@ -64,6 +64,30 @@ func (f *fakeRepo) Transition(ctx context.Context, q *Quotation, to Status, acto
 func (f *fakeRepo) TransitionWithHistory(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string, diffJSON []byte) error {
 	return f.Transition(ctx, q, to, actorID, comment)
 }
+func (f *fakeRepo) Withdraw(ctx context.Context, q *Quotation, actorID uuid.UUID) error {
+	if f.nextErr != nil {
+		e := f.nextErr
+		f.nextErr = nil
+		return e
+	}
+	stored := f.byID[q.ID]
+	if stored == nil {
+		return ErrInvalidTransition
+	}
+	if stored.Status != StatusSubmitted {
+		return ErrInvalidTransition
+	}
+	stored.Status = StatusDraft
+	stored.SnapshotJSON = nil
+	stored.TotalCNYCents = nil
+	stored.Signature = nil
+	f.history[q.ID] = append(f.history[q.ID], StatusHistory{
+		ID: uuid.New(), QuotationID: q.ID,
+		FromStatus: StatusSubmitted, ToStatus: StatusDraft, ActorID: &actorID,
+		At: time.Now(),
+	})
+	return nil
+}
 func (f *fakeRepo) SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error {
 	serial := "Q" + now.UTC().Format("20060102") + "0001"
 	q.SerialNo = &serial
@@ -232,3 +256,46 @@ func TestSubmitThenApprove_HistoryRows(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestService_Withdraw_ErrorPaths exercises the three non-happy branches
+// of Service.Withdraw: not-found, wrong-owner, wrong-status. The repo
+// happy path is covered by TestRepository_WithdrawClearsSnapshotAndKeepsSerial.
+func TestService_Withdraw_ErrorPaths(t *testing.T) {
+	country := uuid.New()
+	entries := []pricing.PricingEntry{
+		{ID: uuid.New(), CountryID: country, ServiceTier: "basic", FeeItem: "f", AmountCNYCents: 1, EffectiveFrom: time.Now(), CreatedBy: uuid.New()},
+	}
+	owner := uuid.New()
+
+	t.Run("not found", func(t *testing.T) {
+		svc, _ := newService(entries)
+		if _, err := svc.Withdraw(context.Background(), uuid.New(), owner); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("want ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("not owner", func(t *testing.T) {
+		svc, _ := newService(entries)
+		q, _ := svc.Create(context.Background(), owner, CreateRequest{
+			CustomerID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		})
+		if _, err := svc.Submit(context.Background(), q.ID, owner); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		intruder := uuid.New()
+		if _, err := svc.Withdraw(context.Background(), q.ID, intruder); !errors.Is(err, ErrNotOwner) {
+			t.Fatalf("want ErrNotOwner, got %v", err)
+		}
+	})
+
+	t.Run("wrong status", func(t *testing.T) {
+		svc, _ := newService(entries)
+		q, _ := svc.Create(context.Background(), owner, CreateRequest{
+			CustomerID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		})
+		// Still a draft — withdrawing must be rejected.
+		if _, err := svc.Withdraw(context.Background(), q.ID, owner); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("want ErrInvalidTransition, got %v", err)
+		}
+	})
+}
