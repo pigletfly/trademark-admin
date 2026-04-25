@@ -1224,7 +1224,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
-	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/httpx"
 )
 
 // Handler wires HTTP to Service. Role gating is enforced by the
@@ -1234,14 +1233,18 @@ type Handler struct{ svc *Service }
 
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
-// Post /quotations — create draft. Any authenticated user may create.
+// POST /quotations — create draft. Any authenticated user may create.
 func (h *Handler) Create(c *gin.Context) {
 	var req CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.AbortBadRequest(c, "invalid body", "ERR_VALIDATION")
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
 		return
 	}
 	user := auth.CurrentUser(c)
+	if user.ID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "ERR_UNAUTHORIZED"})
+		return
+	}
 	q, err := h.svc.Create(c.Request.Context(), user.ID, req)
 	if err != nil {
 		h.writeServiceErr(c, err)
@@ -1250,7 +1253,7 @@ func (h *Handler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, ToResponse(q))
 }
 
-// Get /quotations/:id — read one. Salesperson may only read their own.
+// GET /quotations/:id — read one. Salesperson may only read their own.
 func (h *Handler) Get(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -1262,13 +1265,13 @@ func (h *Handler) Get(c *gin.Context) {
 		return
 	}
 	if !h.canRead(c, q) {
-		httpx.AbortForbidden(c, "forbidden")
+		c.JSON(http.StatusForbidden, gin.H{"code": "ERR_FORBIDDEN", "message": "forbidden"})
 		return
 	}
 	c.JSON(http.StatusOK, ToResponse(q))
 }
 
-// Get /quotations — list. Role shapes the scope:
+// GET /quotations — list. Role shapes the scope:
 //   - salesperson → only their own
 //   - reviewer/admin → all
 func (h *Handler) List(c *gin.Context) {
@@ -1302,7 +1305,7 @@ func (h *Handler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": f.Page, "page_size": f.PageSize})
 }
 
-// Patch /quotations/:id — update editable fields while draft.
+// PATCH /quotations/:id — update editable fields while draft.
 func (h *Handler) Update(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -1310,7 +1313,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	var req UpdateDraftRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.AbortBadRequest(c, "invalid body", "ERR_VALIDATION")
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
 		return
 	}
 	user := auth.CurrentUser(c)
@@ -1322,7 +1325,7 @@ func (h *Handler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, ToResponse(q))
 }
 
-// Post /quotations/:id/submit — draft → submitted.
+// POST /quotations/:id/submit — draft → submitted.
 func (h *Handler) Submit(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -1337,8 +1340,8 @@ func (h *Handler) Submit(c *gin.Context) {
 	c.JSON(http.StatusOK, ToResponse(q))
 }
 
-// Post /quotations/:id/approve | /reject.
-func (h *Handler) review(approve bool) gin.HandlerFunc {
+// POST /quotations/:id/approve | /reject — reviewer only.
+func (h *Handler) Review(approve bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseID(c)
 		if !ok {
@@ -1356,7 +1359,7 @@ func (h *Handler) review(approve bool) gin.HandlerFunc {
 	}
 }
 
-// Post /quotations/:id/cancel — owner cancels a draft.
+// POST /quotations/:id/cancel — owner cancels a draft.
 func (h *Handler) Cancel(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -1373,7 +1376,7 @@ func (h *Handler) Cancel(c *gin.Context) {
 	c.JSON(http.StatusOK, ToResponse(q))
 }
 
-// Get /quotations/:id/history.
+// GET /quotations/:id/history.
 func (h *Handler) History(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -1385,7 +1388,7 @@ func (h *Handler) History(c *gin.Context) {
 		return
 	}
 	if !h.canRead(c, q) {
-		httpx.AbortForbidden(c, "forbidden")
+		c.JSON(http.StatusForbidden, gin.H{"code": "ERR_FORBIDDEN", "message": "forbidden"})
 		return
 	}
 	rows, err := h.svc.History(c.Request.Context(), id)
@@ -1419,24 +1422,24 @@ func (h *Handler) canRead(c *gin.Context, q *Quotation) bool {
 func (h *Handler) writeServiceErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		httpx.AbortNotFound(c, "not found")
+		c.JSON(http.StatusNotFound, gin.H{"code": "ERR_NOT_FOUND", "message": "quotation not found"})
 	case errors.Is(err, ErrNotOwner):
-		httpx.AbortForbidden(c, "not owner")
+		c.JSON(http.StatusForbidden, gin.H{"code": "ERR_NOT_OWNER", "message": "not owner"})
 	case errors.Is(err, ErrInvalidTransition):
-		httpx.AbortConflict(c, "invalid status transition", "ERR_INVALID_TRANSITION")
+		c.JSON(http.StatusConflict, gin.H{"code": "ERR_INVALID_TRANSITION", "message": "invalid status transition"})
 	case errors.Is(err, ErrInvalidTier):
-		httpx.AbortBadRequest(c, "invalid service tier", "ERR_INVALID_TIER")
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_TIER", "message": "invalid service tier"})
 	case errors.Is(err, ErrMissingPricing):
-		httpx.AbortUnprocessable(c, "no active pricing for country+tier", "ERR_MISSING_PRICING")
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"code": "ERR_MISSING_PRICING", "message": "no active pricing for country+tier"})
 	default:
-		httpx.AbortInternal(c, "quotation error")
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": err.Error()})
 	}
 }
 
 func parseID(c *gin.Context) (uuid.UUID, bool) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		httpx.AbortBadRequest(c, "bad id", "ERR_VALIDATION")
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_ID", "message": "invalid uuid"})
 		return uuid.Nil, false
 	}
 	return id, true
@@ -1478,15 +1481,14 @@ func RegisterAuthedRoutes(g *gin.RouterGroup, h *Handler) {
 // RegisterReviewerRoutes registers reviewer-only transitions. The group
 // is expected to already chain RequireRole("reviewer","admin").
 func RegisterReviewerRoutes(g *gin.RouterGroup, h *Handler) {
-	g.POST("/quotations/:id/approve", h.review(true))
-	g.POST("/quotations/:id/reject", h.review(false))
+	g.POST("/quotations/:id/approve", h.Review(true))
+	g.POST("/quotations/:id/reject", h.Review(false))
 }
 ```
 
-- [ ] **Step 3: Check httpx has the helpers used above**
+- [ ] **Step 3: Verify auth is imported correctly**
 
-Run: `grep -rn "AbortUnprocessable\|AbortConflict\|AbortForbidden\|AbortNotFound\|AbortBadRequest\|AbortInternal" apps/api/internal/platform/httpx/`
-Expected: all 6 present. If any helper is missing, add it to `apps/api/internal/platform/httpx/errors.go` following the existing pattern. They must each accept `(c *gin.Context, msg string, [code string]...)` and call `c.AbortWithStatusJSON(<status>, gin.H{"error": msg, "code": code})`.
+The handler imports `auth` so `auth.CurrentUser(c)` works. No platform/httpx helpers are needed — we write errors inline via `c.JSON(...)` to match the repo convention established in `customer/handler.go` and `pricing/handler.go`.
 
 - [ ] **Step 4: Build**
 
@@ -1497,8 +1499,6 @@ Expected: compiles.
 
 ```bash
 git add apps/api/internal/quotation/handler.go apps/api/internal/quotation/router.go
-# plus any httpx additions made in Step 3:
-git add apps/api/internal/platform/httpx/ 2>/dev/null || true
 git commit -m "feat(api): quotation HTTP handlers + routes"
 ```
 
@@ -1580,8 +1580,9 @@ import (
 )
 
 // buildRouter wires up a Gin router with a synthetic auth middleware
-// that injects the current user from headers — mirrors how the real
-// middleware populates context but sidesteps JWT plumbing.
+// that injects the current user into Gin's context using the key the
+// auth package already uses (`auth.currentUser`). Other handler tests
+// in this repo follow the same pattern — see customer/handler_test.go.
 func buildRouter(t *testing.T, quotHandler *quotation.Handler) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -1589,7 +1590,7 @@ func buildRouter(t *testing.T, quotHandler *quotation.Handler) *gin.Engine {
 	r.Use(func(c *gin.Context) {
 		uid, _ := uuid.Parse(c.GetHeader("X-Test-User-ID"))
 		role := c.GetHeader("X-Test-Role")
-		auth.SetCurrentUser(c, auth.User{ID: uid, Role: role})
+		c.Set("auth.currentUser", auth.CurrentUserSummary{ID: uid, Role: role})
 		c.Next()
 	})
 	authed := r.Group("/api/v1")
@@ -1746,10 +1747,10 @@ func TestHandler_SalespersonCannotReadAnothersQuotation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Check auth package exposes `SetCurrentUser` + `User{ID,Role}`**
+- [ ] **Step 2: Check that `auth.CurrentUserSummary` exists and `auth.currentUser` context key is the injection point**
 
-Run: `grep -n "SetCurrentUser\|type User\|CurrentUser" apps/api/internal/auth/*.go | head -20`
-Expected: both `SetCurrentUser(c, auth.User)` and `CurrentUser(c) auth.User` are exported with `.ID` and `.Role` fields. If `SetCurrentUser` doesn't exist yet, add it as a companion to `CurrentUser` — store the user in a well-known context key and expose a setter.
+Run: `grep -n "CurrentUserSummary\|auth.currentUser" apps/api/internal/auth/middleware.go`
+Expected: `CurrentUserSummary{ID, Role}` struct plus the constant key. These already exist — no auth changes needed. (Do NOT add a new `SetCurrentUser` helper; follow the `c.Set("auth.currentUser", ...)` pattern used in customer/handler_test.go.)
 
 - [ ] **Step 3: Run handler test**
 
@@ -1760,8 +1761,6 @@ Expected: both tests pass.
 
 ```bash
 git add apps/api/internal/quotation/handler_test.go
-# plus any auth additions from Step 2:
-git add apps/api/internal/auth/ 2>/dev/null || true
 git commit -m "test(api): quotation handler integration tests (salesperson + reviewer)"
 ```
 
