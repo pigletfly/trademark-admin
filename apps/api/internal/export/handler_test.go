@@ -153,9 +153,9 @@ func TestExportDOCX_HappyPath_ReturnsZipWithChineseCustomerName(t *testing.T) {
 
 	qID := uuid.New()
 	_ = db.Exec(`INSERT INTO quotations
-		(id, customer_id, country_id, service_tier, status, snapshot_json, total_cny_cents, signature, submitted_at, reviewed_at, reviewed_by, created_by)
-		VALUES (?, ?, ?, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?)`,
-		qID, custID, countryID, string(snapJSON), total, sig, submitted, reviewed, userID, userID).Error
+		(id, customer_id, country_id, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
+		VALUES (?, ?, ?, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qID, custID, countryID, string(snapJSON), total, sig, "Q202604260001", submitted, reviewed, userID, userID).Error
 
 	r := buildRouter(t, db, userID, "admin")
 	req, _ := http.NewRequestWithContext(context.Background(), "GET",

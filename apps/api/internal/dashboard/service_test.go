@@ -77,21 +77,24 @@ func seed(t *testing.T, db *gorm.DB) (alice, bob uuid.UUID) {
 
 	// Alice has: 1 draft, 1 approved (¥100.00), 1 rejected.
 	// Bob has: 1 submitted.
+	// Non-draft rows need serial_no to satisfy
+	// chk_quotations_serial_no_when_nondraft (M2 migration 000006);
+	// serial_no uniqueness is enforced so give each a distinct value.
 	approvedSnap := `{"lines":[{"fee_item":"application","amount_cny_cents":10000}],"total_cny_cents":10000,"signature":"sig-a"}`
 	totalA := int64(10000)
 	now := time.Now()
 	aDraft, aApproved, aRejected, bSub := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	if err := db.Exec(`INSERT INTO quotations
-		(id, customer_id, country_id, service_tier, status, snapshot_json, total_cny_cents, signature, submitted_at, reviewed_at, reviewed_by, created_by)
+		(id, customer_id, country_id, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
 		VALUES
-		(?, ?, ?, 'basic', 'draft', NULL, NULL, NULL, NULL, NULL, NULL, ?),
-		(?, ?, ?, 'basic', 'approved', ?, ?, 'sig-a', ?, ?, ?, ?),
-		(?, ?, ?, 'basic', 'rejected', ?, ?, 'sig-a', ?, ?, ?, ?),
-		(?, ?, ?, 'basic', 'submitted', ?, ?, 'sig-b', ?, NULL, NULL, ?)`,
+		(?, ?, ?, 'basic', 'draft', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?),
+		(?, ?, ?, 'basic', 'approved', ?, ?, 'sig-a', ?, ?, ?, ?, ?),
+		(?, ?, ?, 'basic', 'rejected', ?, ?, 'sig-a', ?, ?, ?, ?, ?),
+		(?, ?, ?, 'basic', 'submitted', ?, ?, 'sig-b', ?, ?, NULL, NULL, ?)`,
 		aDraft, cust1, countryID, alice,
-		aApproved, cust1, countryID, approvedSnap, totalA, now, now, alice, alice,
-		aRejected, cust1, countryID, approvedSnap, totalA, now, now, alice, alice,
-		bSub, cust3, countryID, approvedSnap, totalA, now, bob,
+		aApproved, cust1, countryID, approvedSnap, totalA, "Q202604260001", now, now, alice, alice,
+		aRejected, cust1, countryID, approvedSnap, totalA, "Q202604260002", now, now, alice, alice,
+		bSub, cust3, countryID, approvedSnap, totalA, "Q202604260003", now, bob,
 	).Error; err != nil {
 		t.Fatalf("seed quotations: %v", err)
 	}

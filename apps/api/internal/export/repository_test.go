@@ -56,18 +56,19 @@ func seedApprovedQuotation(t *testing.T, db *gorm.DB) (uuid.UUID, uuid.UUID) {
 	}
 
 	// approved quotation — must have snapshot_json, total_cny_cents,
-	// signature, submitted_at, reviewed_at, reviewed_by to pass the
-	// CHECK constraint chk_quotations_snapshot_when_nondraft.
+	// signature, submitted_at, reviewed_at, reviewed_by to pass
+	// chk_quotations_snapshot_when_nondraft, AND serial_no to pass
+	// chk_quotations_serial_no_when_nondraft (M2 migration 000006).
 	qid := uuid.New()
 	if err := db.WithContext(ctx).Exec(`
 		INSERT INTO quotations
 			(id, customer_id, country_id, service_tier, status,
-			 snapshot_json, total_cny_cents, signature,
+			 snapshot_json, total_cny_cents, signature, serial_no,
 			 submitted_at, reviewed_at, reviewed_by, created_by)
 		VALUES (?, ?, ?, 'standard', 'approved',
 		        '{"lines":[],"total_cny_cents":0,"signature":"t"}'::jsonb,
-		        0, 't', NOW(), NOW(), ?, ?)`,
-		qid, custID, countryID, userID, userID,
+		        0, 't', ?, NOW(), NOW(), ?, ?)`,
+		qid, custID, countryID, "Q202604260001", userID, userID,
 	).Error; err != nil {
 		t.Fatalf("seed quotation: %v", err)
 	}
