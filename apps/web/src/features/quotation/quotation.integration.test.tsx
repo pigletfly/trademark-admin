@@ -137,5 +137,9 @@ describe('quotation integration', () => {
 
     // Status badge now reads 已通过.
     await expect.element(screen.getByText('已通过').first()).toBeInTheDocument()
+
+    // Once approved, the export actions become visible.
+    await expect.element(screen.getByRole('button', { name: '导出 Word' })).toBeInTheDocument()
+    await expect.element(screen.getByRole('button', { name: '打印预览 / PDF' })).toBeInTheDocument()
   })
 })

@@ -429,6 +429,24 @@ export const defaultHandlers = [
     return HttpResponse.json(q)
   }),
 
+  http.get('/api/v1/quotations/:id/export.docx', ({ params }) => {
+    const q = quotations.find((x) => x.id === params.id)
+    if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    if (q.status !== 'approved') {
+      return HttpResponse.json({ code: 'ERR_NOT_APPROVED' }, { status: 422 })
+    }
+    // Return a tiny stub — just the magic zip bytes so a Response body
+    // exists and Content-Type matches.
+    const zipMagic = new Uint8Array([0x50, 0x4b, 0x03, 0x04])
+    return new HttpResponse(zipMagic, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': `attachment; filename="quotation-${q.id.slice(0, 8)}.docx"`,
+      },
+    })
+  }),
+
   // ---- catalog minimal handlers to satisfy sidebar / 403 cases ----
   http.get('/api/v1/catalog/countries', () => {
     return HttpResponse.json({
