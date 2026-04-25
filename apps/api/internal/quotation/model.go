@@ -1,6 +1,7 @@
 package quotation
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,3 +57,13 @@ type StatusHistory struct {
 }
 
 func (StatusHistory) TableName() string { return "quotation_status_history" }
+
+// DecodeSnapshot parses the stored JSONB blob into a typed Snapshot.
+// Returns an empty Snapshot with no error when SnapshotJSON is nil/empty.
+func (q *Quotation) DecodeSnapshot() (Snapshot, error) {
+	var s Snapshot
+	if len(q.SnapshotJSON) == 0 {
+		return s, nil
+	}
+	return s, json.Unmarshal(q.SnapshotJSON, &s)
+}
