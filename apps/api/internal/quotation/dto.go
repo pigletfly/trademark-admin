@@ -30,6 +30,15 @@ type ReviewRequest struct {
 	Comment *string `json:"comment"`
 }
 
+// AdjustRequest is the body of POST /quotations/:id/adjust — reviewer
+// hand-edits the snapshot lines. Comment is optional but recommended
+// for audit. Lines gets `required,min=1,dive` so an empty payload is
+// rejected before the service sees it.
+type AdjustRequest struct {
+	Lines   []SnapshotLine `json:"lines" binding:"required,min=1,dive"`
+	Comment *string        `json:"comment,omitempty"`
+}
+
 // SnapshotLine is one priced fee item. Shape mirrors pricing.CalcLine.
 type SnapshotLine struct {
 	FeeItem        string `json:"fee_item"`

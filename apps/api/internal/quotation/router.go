@@ -14,6 +14,8 @@ func RegisterAuthedRoutes(g *gin.RouterGroup, h *Handler) {
 	g.PATCH("/quotations/:id", h.Update)
 	g.POST("/quotations/:id/submit", h.Submit)
 	g.POST("/quotations/:id/cancel", h.Cancel)
+	g.POST("/quotations/:id/withdraw", h.Withdraw)
+	g.POST("/quotations/:id/copy", h.Copy)
 }
 
 // RegisterReviewerRoutes registers reviewer-only transitions. The group
@@ -21,4 +23,5 @@ func RegisterAuthedRoutes(g *gin.RouterGroup, h *Handler) {
 func RegisterReviewerRoutes(g *gin.RouterGroup, h *Handler) {
 	g.POST("/quotations/:id/approve", h.Review(true))
 	g.POST("/quotations/:id/reject", h.Review(false))
+	g.POST("/quotations/:id/adjust", h.Adjust)
 }

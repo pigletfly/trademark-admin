@@ -162,6 +162,61 @@ func (h *Handler) Cancel(c *gin.Context) {
 	c.JSON(http.StatusOK, ToResponse(q))
 }
 
+// POST /quotations/:id/withdraw — owner returns a submitted quotation
+// to draft. Service enforces owner + status; we just marshal.
+func (h *Handler) Withdraw(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	user := auth.CurrentUser(c)
+	q, err := h.svc.Withdraw(c.Request.Context(), id, user.ID)
+	if err != nil {
+		h.writeServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToResponse(q))
+}
+
+// POST /quotations/:id/copy — any authed user may clone a quotation
+// they can see. We deliberately do NOT call canRead here because the
+// product rule is: if you can list/search a quotation, you can copy it.
+// (List scoping already filters salespeople to their own rows.)
+func (h *Handler) Copy(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	user := auth.CurrentUser(c)
+	q, err := h.svc.Copy(c.Request.Context(), id, user.ID)
+	if err != nil {
+		h.writeServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, ToResponse(q))
+}
+
+// POST /quotations/:id/adjust — reviewer/admin rewrites the submitted
+// snapshot in place. Router-level RequireRole gates the route.
+func (h *Handler) Adjust(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var req AdjustRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	user := auth.CurrentUser(c)
+	q, err := h.svc.Adjust(c.Request.Context(), id, user.ID, req.Lines, req.Comment)
+	if err != nil {
+		h.writeServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToResponse(q))
+}
+
 // GET /quotations/:id/history.
 func (h *Handler) History(c *gin.Context) {
 	id, ok := parseID(c)
@@ -218,6 +273,8 @@ func (h *Handler) writeServiceErr(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_TIER", "message": "invalid service tier"})
 	case errors.Is(err, ErrMissingPricing):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"code": "ERR_MISSING_PRICING", "message": "no active pricing for country+tier"})
+	case errors.Is(err, ErrEmptyAdjust):
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_EMPTY_ADJUST", "message": "adjust requires at least one line"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": err.Error()})
 	}
