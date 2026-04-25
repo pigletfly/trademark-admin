@@ -84,3 +84,23 @@ export interface QuotationHistoryEntry {
 export interface QuotationHistoryResponse {
   items: QuotationHistoryEntry[]
 }
+
+export type ExportFormat = 'pdf' | 'docx'
+export type ExportLanguage = 'zh' | 'en' | 'bilingual'
+
+export interface ExportFileDTO {
+  id: string
+  quotation_id: string
+  format: ExportFormat
+  language: ExportLanguage
+  sha256: string
+  file_size: number
+  expires_at: string
+  created_at: string
+  download_url: string
+}
+
+export interface ExportRequest {
+  format: ExportFormat
+  language: ExportLanguage
+}

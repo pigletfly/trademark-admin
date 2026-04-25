@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import {
@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
+import { http, HttpResponse } from 'msw'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { worker } from '@/test-utils/msw/server'
 import {
@@ -23,6 +24,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { __resetAuthInterceptorState } from '@/lib/api'
 import { Quotations } from '@/features/quotation'
 import { QuotationDetail } from '@/features/quotation/detail'
+import { QuotationExportActions } from '@/features/quotation/components/quotation-export-actions'
+import type { Quotation } from '@/features/quotation/types'
 
 // Fixed IDs so seed + router + assertions line up.
 const ADMIN_ID = '00000000-0000-0000-0000-000000000001'
@@ -139,7 +142,85 @@ describe('quotation integration', () => {
     await expect.element(screen.getByText('已通过').first()).toBeInTheDocument()
 
     // Once approved, the export actions become visible.
-    await expect.element(screen.getByRole('button', { name: '导出 Word' })).toBeInTheDocument()
-    await expect.element(screen.getByRole('button', { name: '打印预览 / PDF' })).toBeInTheDocument()
+    await expect.element(screen.getByRole('button', { name: /导出 PDF/ })).toBeInTheDocument()
+    await expect.element(screen.getByRole('button', { name: /导出 Word/ })).toBeInTheDocument()
+  })
+})
+
+describe('QuotationExportActions', () => {
+  beforeAll(async () => {
+    await worker.start({ onUnhandledRequest: 'bypass' })
+  })
+  beforeEach(() => {
+    resetMswState()
+    __resetAuthInterceptorState()
+    useAuthStore.getState().auth.reset()
+  })
+  afterAll(() => {
+    worker.stop()
+  })
+
+  it('calls window.open with signed download_url after clicking PDF bilingual', async () => {
+    const QUOTATION_ID = 'test-quotation-export-1'
+    const DOWNLOAD_URL = '/api/v1/exports/exp-1/download?token=abc'
+
+    // Capture the request body sent to the export endpoint.
+    let capturedBody: unknown = null
+
+    worker.use(
+      http.post(`/api/v1/quotations/${QUOTATION_ID}/export`, async ({ request }) => {
+        capturedBody = await request.json()
+        const now = new Date().toISOString()
+        const dto = {
+          id: 'exp-1',
+          quotation_id: QUOTATION_ID,
+          format: 'pdf',
+          language: 'bilingual',
+          sha256: 'abc123',
+          file_size: 1024,
+          expires_at: now,
+          created_at: now,
+          download_url: DOWNLOAD_URL,
+        }
+        return HttpResponse.json(dto, { status: 201 })
+      }),
+    )
+
+    // Spy on window.open before rendering.
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+    const approvedQuotation: Quotation = {
+      id: QUOTATION_ID,
+      customer_id: 'cust-1',
+      country_id: 'country-1',
+      service_tier: 'basic',
+      status: 'approved',
+      created_by: 'user-1',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <QuotationExportActions quotation={approvedQuotation} />
+        <Toaster />
+      </QueryClientProvider>,
+    )
+
+    // Click the PDF dropdown trigger button.
+    await userEvent.click(screen.getByRole('button', { name: /导出 PDF/ }))
+
+    // Click the bilingual menu item.
+    await userEvent.click(screen.getByText('中英双语 / Bilingual'))
+
+    // Wait for mutation to settle by checking window.open was called.
+    await expect.poll(() => openSpy.mock.calls.length).toBeGreaterThan(0)
+
+    expect(openSpy).toHaveBeenCalledWith(DOWNLOAD_URL, '_blank', 'noopener')
+    expect(capturedBody).toEqual({ format: 'pdf', language: 'bilingual' })
+
+    openSpy.mockRestore()
   })
 })
