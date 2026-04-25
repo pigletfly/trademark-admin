@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Building2,
+  Calculator,
   Command,
   HelpCircle,
   LayoutDashboard,
@@ -27,6 +28,19 @@ function navGroupsFor(role: AuthUser['role']): NavGroup[] {
       ],
     },
   ]
+
+  if (role === 'reviewer' || role === 'admin') {
+    base.push({
+      title: '业务',
+      items: [
+        {
+          title: '定价',
+          url: '/pricing',
+          icon: Calculator,
+        },
+      ],
+    })
+  }
 
   if (role === 'admin') {
     base.push({
