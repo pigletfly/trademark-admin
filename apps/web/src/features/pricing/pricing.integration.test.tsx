@@ -93,8 +93,10 @@ describe('pricing integration', () => {
     await userEvent.fill(screen.getByLabelText('金额（人民币元）'), '800')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    // Matrix renders the new row
-    await expect.element(screen.getByText('¥800.00')).toBeInTheDocument()
-    await expect.element(screen.getByText('application_fee')).toBeInTheDocument()
+    // Matrix renders the new row — scope to the table so we don't accept
+    // the string from the still-mounted drawer or toast.
+    const matrix = screen.getByRole('table')
+    await expect.element(matrix.getByText('application_fee')).toBeInTheDocument()
+    await expect.element(matrix.getByText('¥800.00')).toBeInTheDocument()
   })
 })
