@@ -20,6 +20,7 @@ var (
 	ErrNotOwner          = errors.New("quotation: not owner of quotation")
 	ErrNotFound          = errors.New("quotation: not found")
 	ErrMissingPricing    = errors.New("quotation: no active pricing entries for country+tier")
+	ErrEmptyAdjust       = errors.New("quotation: adjust requires at least one line")
 )
 
 // repo is the subset of Repository methods Service depends on. Keeps the
@@ -207,6 +208,71 @@ func (s *Service) Review(ctx context.Context, id, actorID uuid.UUID, approve boo
 		return nil, err
 	}
 	q.Status = target
+	return q, nil
+}
+
+// Adjust mutates a submitted quotation's snapshot in place. Role-gated
+// by the router (reviewer/admin); Service enforces only the status
+// predicate — ownership is deliberately NOT checked because reviewers
+// need to edit other people's submissions.
+//
+// The quotation stays in `submitted` status; the status_history row
+// records from=submitted,to=submitted with a non-null diff_json
+// distinguishing it from plain submit. The guarded UPDATE in
+// transitionInTx (WHERE id = ? AND status = ?) still fires because
+// from == to == submitted, making it a snapshot-rewrite transition.
+//
+// Lines come straight from the caller — Adjust does NOT run through
+// pricing.Calculate (the reviewer is overriding whatever pricing
+// produced), so it computes its own total and a signature via
+// computeAdjustSignature over the canonical sorted form.
+func (s *Service) Adjust(
+	ctx context.Context,
+	id, actorID uuid.UUID,
+	lines []SnapshotLine,
+	comment *string,
+) (*Quotation, error) {
+	if len(lines) == 0 {
+		return nil, ErrEmptyAdjust
+	}
+	q, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if q == nil {
+		return nil, ErrNotFound
+	}
+	if q.Status != StatusSubmitted {
+		return nil, ErrInvalidTransition
+	}
+	prevSnap, err := q.DecodeSnapshot()
+	if err != nil {
+		return nil, fmt.Errorf("quotation: decode prior snapshot: %w", err)
+	}
+
+	var total int64
+	for _, l := range lines {
+		total += l.AmountCNYCents
+	}
+	sig := computeAdjustSignature(lines)
+	nextSnap := Snapshot{Lines: lines, TotalCNYCents: total, Signature: sig}
+
+	diff := computeSnapshotDiff(prevSnap, nextSnap)
+	diffJSON, err := json.Marshal(diff)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal diff: %w", err)
+	}
+	nextSnapJSON, err := json.Marshal(nextSnap)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal snapshot: %w", err)
+	}
+
+	q.SnapshotJSON = audit.JSONB(nextSnapJSON)
+	q.TotalCNYCents = &total
+	q.Signature = &sig
+	if err := s.repo.TransitionWithHistory(ctx, q, StatusSubmitted, actorID, comment, diffJSON); err != nil {
+		return nil, err
+	}
 	return q, nil
 }
 
