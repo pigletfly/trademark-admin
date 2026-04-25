@@ -258,6 +258,7 @@ func ToResponse(q *Quotation) Response {
 		ID: q.ID, CustomerID: q.CustomerID, CountryID: q.CountryID,
 		ServiceTier: q.ServiceTier, Status: q.Status,
 		TotalCNYCents: q.TotalCNYCents, Signature: q.Signature,
+		SerialNo: q.SerialNo,
 		SubmittedAt: q.SubmittedAt, ReviewedAt: q.ReviewedAt,
 		ReviewedBy: q.ReviewedBy, ReviewComment: q.ReviewComment,
 		Notes: q.Notes, CreatedBy: q.CreatedBy,

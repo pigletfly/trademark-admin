@@ -1,6 +1,7 @@
 package quotation
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,7 @@ type Response struct {
 	Snapshot      *Snapshot  `json:"snapshot,omitempty"`
 	TotalCNYCents *int64     `json:"total_cny_cents,omitempty"`
 	Signature     *string    `json:"signature,omitempty"`
+	SerialNo      *string    `json:"serial_no,omitempty"`
 	SubmittedAt   *time.Time `json:"submitted_at,omitempty"`
 	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
 	ReviewedBy    *uuid.UUID `json:"reviewed_by,omitempty"`
@@ -67,9 +69,10 @@ type Response struct {
 // HistoryEntry is one row in the transition log, returned by the
 // history endpoint.
 type HistoryEntry struct {
-	FromStatus Status     `json:"from_status"`
-	ToStatus   Status     `json:"to_status"`
-	ActorID    *uuid.UUID `json:"actor_id,omitempty"`
-	Comment    *string    `json:"comment,omitempty"`
-	At         time.Time  `json:"at"`
+	FromStatus Status          `json:"from_status"`
+	ToStatus   Status          `json:"to_status"`
+	ActorID    *uuid.UUID      `json:"actor_id,omitempty"`
+	Comment    *string         `json:"comment,omitempty"`
+	At         time.Time       `json:"at"`
+	DiffJSON   json.RawMessage `json:"diff_json,omitempty"`
 }

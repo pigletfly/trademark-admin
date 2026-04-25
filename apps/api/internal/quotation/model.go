@@ -32,6 +32,7 @@ type Quotation struct {
 	SnapshotJSON    audit.JSONB `gorm:"type:jsonb"`
 	TotalCNYCents   *int64
 	Signature       *string
+	SerialNo        *string `gorm:"column:serial_no"`
 	SubmittedAt     *time.Time
 	ReviewedAt      *time.Time
 	ReviewedBy      *uuid.UUID `gorm:"type:uuid"`
@@ -53,6 +54,7 @@ type StatusHistory struct {
 	ToStatus    Status     `gorm:"not null"`
 	ActorID     *uuid.UUID `gorm:"type:uuid"`
 	Comment     *string
+	DiffJSON    audit.JSONB `gorm:"column:diff_json;type:jsonb"`
 	At          time.Time
 }
 

@@ -1,6 +1,7 @@
 package quotation
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -186,6 +187,7 @@ func (h *Handler) History(c *gin.Context) {
 		out = append(out, HistoryEntry{
 			FromStatus: r.FromStatus, ToStatus: r.ToStatus,
 			ActorID: r.ActorID, Comment: r.Comment, At: r.At,
+			DiffJSON: json.RawMessage(r.DiffJSON),
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"items": out})
