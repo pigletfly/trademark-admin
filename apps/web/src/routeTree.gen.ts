@@ -40,6 +40,7 @@ import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenti
 import { Route as AuthenticatedCustomersIdRouteImport } from './routes/_authenticated/customers/$id'
 import { Route as AuthenticatedCatalogNiceCategoriesRouteImport } from './routes/_authenticated/catalog/nice-categories'
 import { Route as AuthenticatedCatalogCountriesRouteImport } from './routes/_authenticated/catalog/countries'
+import { Route as AuthenticatedQuotationsIdPrintRouteImport } from './routes/_authenticated/quotations/$id.print'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -210,6 +211,12 @@ const AuthenticatedCatalogCountriesRoute =
     path: '/catalog/countries',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedQuotationsIdPrintRoute =
+  AuthenticatedQuotationsIdPrintRouteImport.update({
+    id: '/print',
+    path: '/print',
+    getParentRoute: () => AuthenticatedQuotationsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -228,7 +235,7 @@ export interface FileRoutesByFullPath {
   '/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/quotations/$id': typeof AuthenticatedQuotationsIdRoute
+  '/quotations/$id': typeof AuthenticatedQuotationsIdRouteWithChildren
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -242,6 +249,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/tasks/': typeof AuthenticatedTasksIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
+  '/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRoutesByTo {
   '/forgot-password': typeof authForgotPasswordRoute
@@ -259,7 +267,7 @@ export interface FileRoutesByTo {
   '/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/quotations/$id': typeof AuthenticatedQuotationsIdRoute
+  '/quotations/$id': typeof AuthenticatedQuotationsIdRouteWithChildren
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -273,6 +281,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/tasks': typeof AuthenticatedTasksIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
+  '/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -293,7 +302,7 @@ export interface FileRoutesById {
   '/_authenticated/catalog/nice-categories': typeof AuthenticatedCatalogNiceCategoriesRoute
   '/_authenticated/customers/$id': typeof AuthenticatedCustomersIdRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/_authenticated/quotations/$id': typeof AuthenticatedQuotationsIdRoute
+  '/_authenticated/quotations/$id': typeof AuthenticatedQuotationsIdRouteWithChildren
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/_authenticated/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -307,6 +316,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+  '/_authenticated/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -341,6 +351,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/tasks/'
     | '/users/'
+    | '/quotations/$id/print'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/forgot-password'
@@ -372,6 +383,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/users'
+    | '/quotations/$id/print'
   id:
     | '__root__'
     | '/_authenticated'
@@ -405,6 +417,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/'
     | '/_authenticated/tasks/'
     | '/_authenticated/users/'
+    | '/_authenticated/quotations/$id/print'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -640,6 +653,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCatalogCountriesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/quotations/$id/print': {
+      id: '/_authenticated/quotations/$id/print'
+      path: '/print'
+      fullPath: '/quotations/$id/print'
+      preLoaderRoute: typeof AuthenticatedQuotationsIdPrintRouteImport
+      parentRoute: typeof AuthenticatedQuotationsIdRoute
+    }
   }
 }
 
@@ -666,6 +686,20 @@ const AuthenticatedSettingsRouteRouteWithChildren =
     AuthenticatedSettingsRouteRouteChildren,
   )
 
+interface AuthenticatedQuotationsIdRouteChildren {
+  AuthenticatedQuotationsIdPrintRoute: typeof AuthenticatedQuotationsIdPrintRoute
+}
+
+const AuthenticatedQuotationsIdRouteChildren: AuthenticatedQuotationsIdRouteChildren =
+  {
+    AuthenticatedQuotationsIdPrintRoute: AuthenticatedQuotationsIdPrintRoute,
+  }
+
+const AuthenticatedQuotationsIdRouteWithChildren =
+  AuthenticatedQuotationsIdRoute._addFileChildren(
+    AuthenticatedQuotationsIdRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
@@ -673,7 +707,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCatalogNiceCategoriesRoute: typeof AuthenticatedCatalogNiceCategoriesRoute
   AuthenticatedCustomersIdRoute: typeof AuthenticatedCustomersIdRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
-  AuthenticatedQuotationsIdRoute: typeof AuthenticatedQuotationsIdRoute
+  AuthenticatedQuotationsIdRoute: typeof AuthenticatedQuotationsIdRouteWithChildren
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
   AuthenticatedCustomersIndexRoute: typeof AuthenticatedCustomersIndexRoute
@@ -692,7 +726,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedCatalogNiceCategoriesRoute,
   AuthenticatedCustomersIdRoute: AuthenticatedCustomersIdRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
-  AuthenticatedQuotationsIdRoute: AuthenticatedQuotationsIdRoute,
+  AuthenticatedQuotationsIdRoute: AuthenticatedQuotationsIdRouteWithChildren,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
   AuthenticatedCustomersIndexRoute: AuthenticatedCustomersIndexRoute,

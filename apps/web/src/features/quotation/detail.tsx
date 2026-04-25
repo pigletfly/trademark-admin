@@ -10,6 +10,7 @@ import { useQuotation, useQuotationHistory } from './hooks'
 import { QuotationStatusBadge } from './components/quotation-status-badge'
 import { QuotationSnapshotView } from './components/quotation-snapshot'
 import { QuotationActionBar } from './components/quotation-action-bar'
+import { QuotationExportActions } from './components/quotation-export-actions'
 import { QuotationHistoryTimeline } from './components/quotation-history-timeline'
 import { QuotationFormSheet } from './components/quotation-form-sheet'
 
@@ -38,7 +39,10 @@ export function QuotationDetail() {
                   <span className='font-mono text-base'>{q.id.slice(0, 8)}</span>
                   <QuotationStatusBadge status={q.status} />
                 </CardTitle>
-                <QuotationActionBar quotation={q} onEditDraft={() => setEditOpen(true)} />
+                <div className='flex items-center gap-2'>
+                  <QuotationActionBar quotation={q} onEditDraft={() => setEditOpen(true)} />
+                  <QuotationExportActions quotation={q} />
+                </div>
               </CardHeader>
               <CardContent className='grid gap-6 md:grid-cols-2'>
                 <div className='space-y-2 text-sm'>
