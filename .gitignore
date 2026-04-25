@@ -47,3 +47,8 @@ apps/api/migrate
 # Force-track it here so this repo is unaffected by that global rule.
 !apps/web/src/lib/
 !apps/web/src/lib/**
+
+# The force-track above would accidentally re-include vitest failure
+# screenshots under apps/web/src/lib/__screenshots__/. Re-ignore them
+# explicitly (later rules win).
+apps/web/src/lib/__screenshots__/
