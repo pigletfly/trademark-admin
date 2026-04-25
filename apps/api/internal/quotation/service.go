@@ -176,6 +176,7 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 	if err := s.repo.Transition(ctx, q, StatusSubmitted, actorID, nil); err != nil {
 		return nil, err
 	}
+	q.Status = StatusSubmitted
 	return q, nil
 }
 
@@ -203,6 +204,7 @@ func (s *Service) Review(ctx context.Context, id, actorID uuid.UUID, approve boo
 	if err := s.repo.Transition(ctx, q, target, actorID, comment); err != nil {
 		return nil, err
 	}
+	q.Status = target
 	return q, nil
 }
 
