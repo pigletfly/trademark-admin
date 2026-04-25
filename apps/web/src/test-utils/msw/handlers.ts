@@ -447,6 +447,39 @@ export const defaultHandlers = [
     })
   }),
 
+  http.get('/api/v1/dashboard/summary', () => {
+    // Derive counts from the in-memory quotations store.
+    const counts: Record<string, number> = {}
+    let approvedTotal = 0
+    for (const q of quotations) {
+      counts[q.status] = (counts[q.status] ?? 0) + 1
+      if (q.status === 'approved' && q.total_cny_cents != null) {
+        approvedTotal += q.total_cny_cents
+      }
+    }
+    const recent = [...quotations]
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .slice(0, 5)
+      .map((q) => ({
+        id: q.id,
+        status: q.status,
+        service_tier: q.service_tier,
+        total_cny_cents: q.total_cny_cents,
+        created_at: q.created_at,
+        updated_at: q.updated_at,
+      }))
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 3600 * 1000
+    const newCusts = customers.filter((c) => Date.parse(c.created_at) >= thirtyDaysAgo).length
+
+    return HttpResponse.json({
+      quotations_by_status: Object.entries(counts).map(([status, count]) => ({ status, count })),
+      approved_total_cny_cents: approvedTotal,
+      new_customers_last_30_days: newCusts,
+      recent_quotations: recent,
+      scope: 'firm',
+    })
+  }),
+
   // ---- catalog minimal handlers to satisfy sidebar / 403 cases ----
   http.get('/api/v1/catalog/countries', () => {
     return HttpResponse.json({
