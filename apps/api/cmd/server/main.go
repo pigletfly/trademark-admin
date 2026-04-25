@@ -184,11 +184,16 @@ func main() {
 	quotation.RegisterReviewerRoutes(reviewerAdminGroup, quotHandler)
 
 	// Export — any authed user may download their own; reviewer/admin
-	// may download any. Only approved quotations are exportable. The
-	// POST /export + public download wiring (Service + Signer) is added
-	// in a later task; legacy GET /export.docx keeps working with nil deps.
-	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo, nil, nil)
-	export.RegisterRoutes(authed, exportHandler)
+	// may download any. Only approved quotations are exportable.
+	exportRepo := export.NewRepository(db)
+	exportStorage := export.NewStorage(cfg.ExportStorageRoot)
+	gotenbergClient := export.NewGotenberg(cfg.GotenbergURL)
+	exportSvc := export.NewService(exportRepo, exportStorage, gotenbergClient, cfg.ExportTTL)
+	exportSigner := export.NewSigner([]byte(cfg.ExportSigningSecret))
+	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo, exportSvc, exportSigner)
+	export.RegisterRoutes(authed, exportHandler)            // legacy GET export.docx
+	export.RegisterAuthedRoutes(authed, exportHandler)      // POST /quotations/:id/export
+	export.RegisterPublicRoutes(public, exportHandler)      // GET /exports/:id/download (token-auth)
 
 	// Dashboard — any authed user. Scope (self vs firm) is decided
 	// inside the service based on role.
