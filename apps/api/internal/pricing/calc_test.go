@@ -97,3 +97,28 @@ func TestCalculate_SignatureChangesWithAmount(t *testing.T) {
 		t.Fatal("signature should change when amount changes")
 	}
 }
+
+// A fee_item containing the delimiter characters must not collide with
+// a legitimate two-line set. Length-prefixing in signature() defeats
+// the "a=1;b" trick.
+func TestCalculate_SignatureResistsDelimiterInjection(t *testing.T) {
+	c := uuid.New()
+	// Attacker case: single fee named "a=1;b" with amount 2
+	injected := mustEntry(t, c, "basic", "a=1;b", 2, false)
+	// Honest case: two fees "a" = 1 and "b" = 2
+	honestA := mustEntry(t, c, "basic", "a", 1, false)
+	honestB := mustEntry(t, c, "basic", "b", 2, false)
+
+	rInjected, err := Calculate([]PricingEntry{injected}, CalcInput{c, "basic"})
+	if err != nil {
+		t.Fatalf("injected calc err: %v", err)
+	}
+	rHonest, err := Calculate([]PricingEntry{honestA, honestB}, CalcInput{c, "basic"})
+	if err != nil {
+		t.Fatalf("honest calc err: %v", err)
+	}
+
+	if rInjected.Signature == rHonest.Signature {
+		t.Fatalf("signature collision via delimiter injection: both %q", rInjected.Signature)
+	}
+}

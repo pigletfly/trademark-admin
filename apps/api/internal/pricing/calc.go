@@ -73,10 +73,13 @@ func Calculate(entries []PricingEntry, input CalcInput) (CalcResult, error) {
 }
 
 func signature(in CalcInput, lines []CalcLine, total int64) string {
+	// Length-prefix every variable-width field so a malicious fee_item
+	// value like "a=1;b" cannot forge a collision with a two-line set.
+	// Format: v2|<ctry>|<tier>|<len>:<fee_item>=<cents>;...|=<total>
 	h := sha256.New()
-	fmt.Fprintf(h, "v1|%s|%s|", in.CountryID, in.ServiceTier)
+	fmt.Fprintf(h, "v2|%s|%s|", in.CountryID, in.ServiceTier)
 	for _, l := range lines {
-		fmt.Fprintf(h, "%s=%d;", l.FeeItem, l.AmountCNYCents)
+		fmt.Fprintf(h, "%d:%s=%d;", len(l.FeeItem), l.FeeItem, l.AmountCNYCents)
 	}
 	fmt.Fprintf(h, "=%d", total)
 	return hex.EncodeToString(h.Sum(nil))
