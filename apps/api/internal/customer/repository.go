@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -183,4 +184,17 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "23505") || strings.Contains(msg, "duplicate key")
+}
+
+// CountCreatedAfter returns the number of non-deleted customers with
+// created_at >= since. When ownerID is non-nil, the scope is narrowed
+// to one creator.
+func (r *Repository) CountCreatedAfter(ctx context.Context, since time.Time, ownerID *uuid.UUID) (int64, error) {
+	q := r.db.WithContext(ctx).Model(&Customer{}).Where("created_at >= ?", since)
+	if ownerID != nil {
+		q = q.Where("created_by = ?", *ownerID)
+	}
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
 }

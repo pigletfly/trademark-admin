@@ -157,3 +157,71 @@ func (r *Repository) History(ctx context.Context, id uuid.UUID) ([]StatusHistory
 func (r *Repository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	return r.db.WithContext(ctx).Delete(&Quotation{}, "id = ?", id).Error
 }
+
+// StatusCount is one {status: count} row — used by CountByStatus.
+type StatusCount struct {
+	Status Status
+	Count  int64
+}
+
+// CountByStatus groups non-deleted quotations by status. When ownerID
+// is non-nil, the scope is narrowed to one creator (salesperson view).
+func (r *Repository) CountByStatus(ctx context.Context, ownerID *uuid.UUID) ([]StatusCount, error) {
+	q := r.db.WithContext(ctx).Model(&Quotation{})
+	if ownerID != nil {
+		q = q.Where("created_by = ?", *ownerID)
+	}
+	var rows []StatusCount
+	err := q.Select("status, COUNT(*) AS count").
+		Group("status").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// SumApprovedCNYCents returns the total CNY cents across approved
+// quotations, optionally scoped to a single creator. Returns 0 when
+// there are no approved rows.
+func (r *Repository) SumApprovedCNYCents(ctx context.Context, ownerID *uuid.UUID) (int64, error) {
+	q := r.db.WithContext(ctx).Model(&Quotation{}).
+		Where("status = ?", StatusApproved)
+	if ownerID != nil {
+		q = q.Where("created_by = ?", *ownerID)
+	}
+	var total *int64
+	if err := q.Select("COALESCE(SUM(total_cny_cents), 0)").Row().Scan(&total); err != nil {
+		return 0, err
+	}
+	if total == nil {
+		return 0, nil
+	}
+	return *total, nil
+}
+
+// RecentQuotation is a trimmed row for the activity feed — avoids
+// dragging the full snapshot JSON into the dashboard response.
+type RecentQuotation struct {
+	ID            uuid.UUID
+	Status        Status
+	ServiceTier   string
+	TotalCNYCents *int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Recent returns the most recently updated quotations (newest first).
+// Scoped to ownerID when non-nil.
+func (r *Repository) Recent(ctx context.Context, ownerID *uuid.UUID, limit int) ([]RecentQuotation, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 5
+	}
+	q := r.db.WithContext(ctx).Model(&Quotation{})
+	if ownerID != nil {
+		q = q.Where("created_by = ?", *ownerID)
+	}
+	var rows []RecentQuotation
+	err := q.Select("id, status, service_tier, total_cny_cents, created_at, updated_at").
+		Order("updated_at DESC").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
+}
