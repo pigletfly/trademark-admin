@@ -13,21 +13,22 @@ import (
 // QuotationView is the render input. Caller resolves it from the
 // quotation + customer + country repos; the renderer has no DB access.
 type QuotationView struct {
-	QuotationID   string
-	Status        string
-	ServiceTier   string
-	CustomerName  string
-	CountryNameZH string
-	CountryNameEN string
-	CountryCode   string
-	TotalCNYCents int64
-	Signature     string
-	Lines         []ExportLine
-	SubmittedAt   *time.Time
-	ReviewedAt    *time.Time
-	ReviewComment string
-	Notes         string
-	GeneratedAt   time.Time
+	QuotationID      string
+	QuotationIDShort string // first 8 chars; filled by RenderHTML if blank
+	Status           string
+	ServiceTier      string
+	CustomerName     string
+	CountryNameZH    string
+	CountryNameEN    string
+	CountryCode      string
+	TotalCNYCents    int64
+	Signature        string
+	Lines            []ExportLine
+	SubmittedAt      *time.Time
+	ReviewedAt       *time.Time
+	ReviewComment    string
+	Notes            string
+	GeneratedAt      time.Time
 }
 
 // ExportLine is one priced fee item from the quotation snapshot.

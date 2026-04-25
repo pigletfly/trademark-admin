@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>报价书 {{.QuotationIDShort}}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif; color: #111; }
+  h1 { font-size: 20pt; margin: 0 0 6mm; text-align: center; }
+  h2 { font-size: 13pt; margin: 8mm 0 2mm; border-bottom: 1px solid #999; padding-bottom: 1mm; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0; }
+  th, td { padding: 1.5mm 3mm; border: 0.5pt solid #888; font-size: 10pt; }
+  th { background: #f2f2f2; text-align: left; }
+  .kv td:first-child { width: 35%; font-weight: bold; background: #fafafa; }
+  .total { font-weight: bold; background: #fcf6e1; }
+  .right { text-align: right; }
+  .footer { margin-top: 6mm; font-size: 8pt; color: #666; text-align: center; }
+</style>
+</head>
+<body>
+<h1>报价书</h1>
+<table class="kv">
+  <tr><td>编号</td><td>{{.QuotationIDShort}}</td></tr>
+  <tr><td>生成时间</td><td>{{.GeneratedAt.Format "2006-01-02 15:04"}} UTC</td></tr>
+</table>
+
+<h2>1. 基本信息</h2>
+<table class="kv">
+  <tr><td>客户</td><td>{{.CustomerName}}</td></tr>
+  <tr><td>国家</td><td>{{.CountryCode}} — {{.CountryNameZH}}</td></tr>
+  <tr><td>服务级别</td><td>{{.ServiceTier}}</td></tr>
+  <tr><td>状态</td><td>{{.Status}}</td></tr>
+  {{if .SubmittedAt}}<tr><td>提交时间</td><td>{{.SubmittedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+  {{if .ReviewedAt}}<tr><td>审核时间</td><td>{{.ReviewedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+  {{if .ReviewComment}}<tr><td>审核备注</td><td>{{.ReviewComment}}</td></tr>{{end}}
+  {{if .Notes}}<tr><td>备注</td><td>{{.Notes}}</td></tr>{{end}}
+</table>
+
+<h2>2. 报价明细</h2>
+<table>
+  <thead><tr>
+    <th>费用项</th>
+    <th class="right">金额 (CNY)</th>
+  </tr></thead>
+  <tbody>
+    {{range .Lines}}
+    <tr>
+      <td>{{.FeeItem}}</td>
+      <td class="right">{{fmtCNY .AmountCNYCents}}</td>
+    </tr>
+    {{end}}
+    <tr class="total">
+      <td>合计</td>
+      <td class="right">{{fmtCNY .TotalCNYCents}}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3. 签名</h2>
+<p style="font-family: monospace; word-break: break-all;">{{.Signature}}</p>
+
+<div class="footer">—— 本文档由系统自动生成 ——</div>
+</body>
+</html>

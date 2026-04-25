@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Quotation {{.QuotationIDShort}}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "Source Serif Pro", Georgia, serif; color: #111; }
+  h1 { font-size: 20pt; margin: 0 0 6mm; text-align: center; }
+  h2 { font-size: 13pt; margin: 8mm 0 2mm; border-bottom: 1px solid #999; padding-bottom: 1mm; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0; }
+  th, td { padding: 1.5mm 3mm; border: 0.5pt solid #888; font-size: 10pt; }
+  th { background: #f2f2f2; text-align: left; }
+  .kv td:first-child { width: 35%; font-weight: bold; background: #fafafa; }
+  .total { font-weight: bold; background: #fcf6e1; }
+  .right { text-align: right; }
+  .footer { margin-top: 6mm; font-size: 8pt; color: #666; text-align: center; }
+</style>
+</head>
+<body>
+<h1>Quotation</h1>
+<table class="kv">
+  <tr><td>No.</td><td>{{.QuotationIDShort}}</td></tr>
+  <tr><td>Generated</td><td>{{.GeneratedAt.Format "2006-01-02 15:04"}} UTC</td></tr>
+</table>
+
+<h2>1. Basic Info</h2>
+<table class="kv">
+  <tr><td>Customer</td><td>{{.CustomerName}}</td></tr>
+  <tr><td>Country</td><td>{{.CountryCode}} — {{.CountryNameEN}}</td></tr>
+  <tr><td>Service Tier</td><td>{{.ServiceTier}}</td></tr>
+  <tr><td>Status</td><td>{{.Status}}</td></tr>
+  {{if .SubmittedAt}}<tr><td>Submitted</td><td>{{.SubmittedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+  {{if .ReviewedAt}}<tr><td>Reviewed</td><td>{{.ReviewedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+  {{if .ReviewComment}}<tr><td>Review Comment</td><td>{{.ReviewComment}}</td></tr>{{end}}
+  {{if .Notes}}<tr><td>Notes</td><td>{{.Notes}}</td></tr>{{end}}
+</table>
+
+<h2>2. Fee Breakdown</h2>
+<table>
+  <thead><tr>
+    <th>Fee Item</th>
+    <th class="right">Amount (CNY)</th>
+  </tr></thead>
+  <tbody>
+    {{range .Lines}}
+    <tr>
+      <td>{{.FeeItem}}</td>
+      <td class="right">{{fmtCNY .AmountCNYCents}}</td>
+    </tr>
+    {{end}}
+    <tr class="total">
+      <td>Total</td>
+      <td class="right">{{fmtCNY .TotalCNYCents}}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3. Signature</h2>
+<p style="font-family: monospace; word-break: break-all;">{{.Signature}}</p>
+
+<div class="footer">—— Auto-generated document ——</div>
+</body>
+</html>
