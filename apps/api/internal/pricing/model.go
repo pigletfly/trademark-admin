@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,10 +32,5 @@ var ServiceTiers = []string{"basic", "standard", "premium"}
 
 // IsValidServiceTier reports whether t is one of the allowed tiers.
 func IsValidServiceTier(t string) bool {
-	for _, v := range ServiceTiers {
-		if v == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ServiceTiers, t)
 }
