@@ -16,6 +16,7 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/catalog"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/dashboard"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/export"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/config"
@@ -186,6 +187,12 @@ func main() {
 	// may download any. Only approved quotations are exportable.
 	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo)
 	export.RegisterRoutes(authed, exportHandler)
+
+	// Dashboard — any authed user. Scope (self vs firm) is decided
+	// inside the service based on role.
+	dashSvc := dashboard.NewService(quotRepo, custRepo)
+	dashHandler := dashboard.NewHandler(dashSvc)
+	dashboard.RegisterRoutes(authed, dashHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPListenAddr,
