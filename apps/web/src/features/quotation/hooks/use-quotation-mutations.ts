@@ -3,6 +3,7 @@ import { AxiosError } from 'axios'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type {
+  AdjustRequest,
   CreateQuotationRequest,
   Quotation,
   ReviewRequest,
@@ -17,6 +18,7 @@ function mapQuotationError(err: unknown): string {
     if (code === 'ERR_INVALID_TRANSITION') return '当前状态不允许该操作'
     if (code === 'ERR_MISSING_PRICING') return '该国家/级别暂无定价，请联系管理员'
     if (code === 'ERR_NOT_OWNER') return '只能操作自己创建的报价'
+    if (code === 'ERR_EMPTY_ADJUST') return '请至少输入一行报价项'
     if (err.response?.status === 403) return '没有权限执行该操作'
     if (err.response?.status === 404) return '报价不存在'
   }
@@ -104,6 +106,51 @@ export function useCancelQuotation() {
     onSuccess: (q) => {
       invalidate(qc, q.id)
       toast.success('报价已取消')
+    },
+    onError: (err) => toast.error(mapQuotationError(err)),
+  })
+}
+
+export function useWithdrawQuotation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string): Promise<Quotation> => {
+      const res = await api.post<Quotation>(`/quotations/${id}/withdraw`)
+      return res.data
+    },
+    onSuccess: (q) => {
+      invalidate(qc, q.id)
+      toast.success('报价已撤回为草稿')
+    },
+    onError: (err) => toast.error(mapQuotationError(err)),
+  })
+}
+
+export function useCopyQuotation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string): Promise<Quotation> => {
+      const res = await api.post<Quotation>(`/quotations/${id}/copy`)
+      return res.data
+    },
+    onSuccess: (q) => {
+      invalidate(qc, q.id)
+      toast.success('报价已复制为新草稿')
+    },
+    onError: (err) => toast.error(mapQuotationError(err)),
+  })
+}
+
+export function useAdjustQuotation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (args: { id: string; body: AdjustRequest }): Promise<Quotation> => {
+      const res = await api.post<Quotation>(`/quotations/${args.id}/adjust`, args.body)
+      return res.data
+    },
+    onSuccess: (q) => {
+      invalidate(qc, q.id)
+      toast.success('调价已保存')
     },
     onError: (err) => toast.error(mapQuotationError(err)),
   })

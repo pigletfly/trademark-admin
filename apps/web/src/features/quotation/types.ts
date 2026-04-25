@@ -31,6 +31,7 @@ export interface Quotation {
   snapshot?: QuotationSnapshot
   total_cny_cents?: number | null
   signature?: string | null
+  serial_no?: string | null
   submitted_at?: string | null
   reviewed_at?: string | null
   reviewed_by?: string | null
@@ -79,6 +80,7 @@ export interface QuotationHistoryEntry {
   actor_id?: string | null
   comment?: string | null
   at: string
+  diff_json?: SnapshotDiff | null
 }
 
 export interface QuotationHistoryResponse {
@@ -103,4 +105,23 @@ export interface ExportFileDTO {
 export interface ExportRequest {
   format: ExportFormat
   language: ExportLanguage
+}
+
+export interface SnapshotLineDelta {
+  fee_item: string
+  before: number
+  after: number
+}
+
+export interface SnapshotDiff {
+  lines_added?: SnapshotLineDelta[]
+  lines_removed?: SnapshotLineDelta[]
+  lines_updated?: SnapshotLineDelta[]
+  total_before: number
+  total_after: number
+}
+
+export interface AdjustRequest {
+  lines: SnapshotLine[]
+  comment?: string
 }
