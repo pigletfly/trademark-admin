@@ -1,0 +1,229 @@
+package quotation_test
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	api "github.com/pigletfly/trademark-admin/apps/api"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/quotation"
+	"github.com/pigletfly/trademark-admin/apps/api/pkg/migrator"
+
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+)
+
+// bootPg spins up a fresh Postgres container, applies migrations, and
+// returns a GORM handle + the raw DSN.
+func bootPg(t *testing.T) (*gorm.DB, string) {
+	t.Helper()
+	ctx := context.Background()
+	container, err := tcpostgres.Run(ctx, "postgres:16",
+		tcpostgres.WithDatabase("quot_test"),
+		tcpostgres.WithUsername("quot"),
+		tcpostgres.WithPassword("quot"),
+		tcpostgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		t.Fatalf("postgres container: %v", err)
+	}
+	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("dsn: %v", err)
+	}
+	mig, err := migrator.New(api.Migrations, "migrations", dsn)
+	if err != nil {
+		t.Fatalf("migrator: %v", err)
+	}
+	if err := mig.Up(); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+	_ = mig.Close()
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm open: %v", err)
+	}
+	return db, dsn
+}
+
+// seedCustomerCountryUser inserts the minimum FK targets so a quotation
+// row can exist. Returns (customerID, countryID, userID).
+func seedCustomerCountryUser(t *testing.T, db *gorm.DB) (uuid.UUID, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	custID := uuid.New()
+	countryID := uuid.New()
+	userID := uuid.New()
+	// users table has role_id FK — look up salesperson role id.
+	// GORM+pgx returns UUID columns as text strings, so scan via string first.
+	var roleIDStr string
+	if err := db.WithContext(ctx).Raw(
+		`SELECT id FROM roles WHERE code = ?`, "salesperson",
+	).Scan(&roleIDStr).Error; err != nil {
+		t.Fatalf("select role: %v", err)
+	}
+	roleID, err := uuid.Parse(roleIDStr)
+	if err != nil {
+		t.Fatalf("parse role id: %v", err)
+	}
+	if err := db.WithContext(ctx).Exec(
+		`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		userID, "Tester", "tester-"+userID.String()+"@example.com", "x", roleID,
+	).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := db.WithContext(ctx).Exec(
+		`INSERT INTO customers (id, name, created_by) VALUES (?, ?, ?)`,
+		custID, "Test Customer", userID,
+	).Error; err != nil {
+		t.Fatalf("seed customer: %v", err)
+	}
+	if err := db.WithContext(ctx).Exec(
+		`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		countryID, "XX", "测试国", "Testland",
+	).Error; err != nil {
+		t.Fatalf("seed country: %v", err)
+	}
+	return custID, countryID, userID
+}
+
+func TestRepository_CreateGet(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	q := &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: userID,
+	}
+	if err := r.Create(context.Background(), q); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := r.Get(context.Background(), q.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got == nil || got.Status != quotation.StatusDraft {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestRepository_TransitionRecordsHistory(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	// Create draft.
+	q := &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: userID,
+	}
+	if err := r.Create(context.Background(), q); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Transition to submitted with a fake snapshot payload.
+	snap, _ := json.Marshal(quotation.Snapshot{
+		Lines:         []quotation.SnapshotLine{{FeeItem: "f", AmountCNYCents: 1000}},
+		TotalCNYCents: 1000, Signature: "sig",
+	})
+	q.SnapshotJSON = audit.JSONB(snap)
+	total := int64(1000)
+	sig := "sig"
+	now := time.Now()
+	q.TotalCNYCents = &total
+	q.Signature = &sig
+	q.SubmittedAt = &now
+	if err := r.Transition(context.Background(), q, quotation.StatusSubmitted, userID, nil); err != nil {
+		t.Fatalf("transition: %v", err)
+	}
+	got, _ := r.Get(context.Background(), q.ID)
+	if got.Status != quotation.StatusSubmitted || got.Signature == nil || *got.Signature != "sig" {
+		t.Fatalf("after submit: %+v", got)
+	}
+
+	hist, err := r.History(context.Background(), q.ID)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 1 || hist[0].FromStatus != quotation.StatusDraft || hist[0].ToStatus != quotation.StatusSubmitted {
+		t.Fatalf("history: %+v", hist)
+	}
+}
+
+func TestRepository_CheckConstraintBlocksSubmittedWithoutSnapshot(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	// Directly attempt to insert a submitted quotation with no snapshot.
+	q := &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusSubmitted,
+		CreatedBy: userID,
+	}
+	if err := r.Create(context.Background(), q); err == nil {
+		t.Fatal("expected CHECK violation on submitted without snapshot")
+	}
+}
+
+func TestRepository_ListFilters(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, userID := seedCustomerCountryUser(t, db)
+	r := quotation.NewRepository(db)
+
+	// Insert 3 quotations — 2 owned by userID as draft, 1 by a different
+	// user with status cancelled.
+	for i := 0; i < 2; i++ {
+		_ = r.Create(context.Background(), &quotation.Quotation{
+			CustomerID: custID, CountryID: countryID,
+			ServiceTier: "basic", Status: quotation.StatusDraft,
+			CreatedBy: userID,
+		})
+	}
+	// Seed a second user to own the third row.
+	var roleIDStr string
+	_ = db.Raw(`SELECT id FROM roles WHERE code = 'salesperson'`).Scan(&roleIDStr).Error
+	roleID, err := uuid.Parse(roleIDStr)
+	if err != nil {
+		t.Fatalf("parse role id: %v", err)
+	}
+	other := uuid.New()
+	_ = db.Exec(`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		other, "Other", "other-"+other.String()+"@example.com", "x", roleID).Error
+	_ = r.Create(context.Background(), &quotation.Quotation{
+		CustomerID: custID, CountryID: countryID,
+		ServiceTier: "basic", Status: quotation.StatusDraft,
+		CreatedBy: other,
+	})
+
+	// Owner filter → 2 rows.
+	ownFilter := userID
+	got, total, err := r.List(context.Background(), quotation.ListFilter{OwnerID: &ownFilter})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 || len(got) != 2 {
+		t.Fatalf("owner filter: total=%d got=%d", total, len(got))
+	}
+
+	// Status filter → all 3 are drafts.
+	draftStatus := quotation.StatusDraft
+	_, total, _ = r.List(context.Background(), quotation.ListFilter{Status: &draftStatus})
+	if total != 3 {
+		t.Fatalf("draft total: want 3, got %d", total)
+	}
+}
+
+// This silences the unused-import warning if pricing is elided.
+var _ = pricing.ServiceTiers
