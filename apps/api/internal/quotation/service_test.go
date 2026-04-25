@@ -61,6 +61,9 @@ func (f *fakeRepo) Transition(ctx context.Context, q *Quotation, to Status, acto
 	})
 	return nil
 }
+func (f *fakeRepo) TransitionWithHistory(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string, diffJSON []byte) error {
+	return f.Transition(ctx, q, to, actorID, comment)
+}
 func (f *fakeRepo) SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error {
 	serial := "Q" + now.UTC().Format("20060102") + "0001"
 	q.SerialNo = &serial

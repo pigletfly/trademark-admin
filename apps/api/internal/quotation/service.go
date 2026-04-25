@@ -29,6 +29,7 @@ type repo interface {
 	Get(ctx context.Context, id uuid.UUID) (*Quotation, error)
 	UpdateDraft(ctx context.Context, id uuid.UUID, patch map[string]any) error
 	Transition(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string) error
+	TransitionWithHistory(ctx context.Context, q *Quotation, to Status, actorID uuid.UUID, comment *string, diffJSON []byte) error
 	SubmitWithSerial(ctx context.Context, q *Quotation, actorID uuid.UUID, now time.Time) error
 	List(ctx context.Context, f ListFilter) ([]Quotation, int64, error)
 	History(ctx context.Context, id uuid.UUID) ([]StatusHistory, error)

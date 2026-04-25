@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 )
 
 // Repository is the GORM-backed persistence layer.
@@ -60,6 +62,7 @@ func (r *Repository) transitionInTx(
 	to Status,
 	actorID uuid.UUID,
 	comment *string,
+	diffJSON []byte,
 ) error {
 	from := q.Status
 	updates := map[string]any{
@@ -106,6 +109,9 @@ func (r *Repository) transitionInTx(
 		ActorID: &actorID, Comment: comment,
 		At: time.Now(),
 	}
+	if len(diffJSON) > 0 {
+		h.DiffJSON = audit.JSONB(diffJSON)
+	}
 	return tx.Create(&h).Error
 }
 
@@ -121,7 +127,7 @@ func (r *Repository) Transition(
 	comment *string,
 ) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return r.transitionInTx(tx, q, to, actorID, comment)
+		return r.transitionInTx(tx, q, to, actorID, comment, nil)
 	})
 }
 
@@ -148,7 +154,25 @@ func (r *Repository) SubmitWithSerial(
 			return err
 		}
 		q.SerialNo = &serial
-		return r.transitionInTx(tx, q, StatusSubmitted, actorID, nil)
+		return r.transitionInTx(tx, q, StatusSubmitted, actorID, nil, nil)
+	})
+}
+
+// TransitionWithHistory is like Transition but records a structured
+// diff_json payload on the history row. Used by Adjust (same-status
+// snapshot mutation) and any future transition that needs to capture
+// "what changed" in a typed form. Pass nil/empty diffJSON to get
+// identical behavior to plain Transition.
+func (r *Repository) TransitionWithHistory(
+	ctx context.Context,
+	q *Quotation,
+	to Status,
+	actorID uuid.UUID,
+	comment *string,
+	diffJSON []byte,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return r.transitionInTx(tx, q, to, actorID, comment, diffJSON)
 	})
 }
 
