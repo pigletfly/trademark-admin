@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
@@ -16,18 +16,22 @@ export function NewQuotationPage() {
   const editingId = store((s) => s.editingId)
   const reset = store.getState().reset
 
-  // Banner shows only when:
-  //   - mount: draft is non-empty AND not an edit-session leftover
-  //   - user hasn't explicitly dismissed it this render
-  const initiallyShow = hasNonEmptyDraft(draft) || editingId !== null
-  const [showBanner, setShowBanner] = useState(initiallyShow)
+  // On mount only: if we're in new mode but the store still has a stale
+  // editingId from a prior /edit visit, wipe it so we don't accidentally
+  // PATCH a stranger's quotation.
+  useEffect(() => {
+    if (editingId !== null) {
+      reset()
+    }
+    // Intentionally run once on mount. Later editingId changes are
+    // driven by the wizard itself (e.g. loadForEdit), not this route.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // If we're in new mode but the store still has a stale editingId from
-  // a prior /edit visit, wipe it so we don't accidentally PATCH a
-  // stranger's quotation. We do this eagerly on mount.
-  if (editingId !== null) {
-    reset()
-  }
+  // Banner shows when user has real typed content from a prior session.
+  // Lazy initializer only reads the store on first render; subsequent
+  // updates don't re-trigger the banner.
+  const [showBanner, setShowBanner] = useState(() => hasNonEmptyDraft(draft))
 
   return (
     <>
