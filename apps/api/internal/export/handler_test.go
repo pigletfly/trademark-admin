@@ -79,8 +79,8 @@ func wireDomainServices(t *testing.T, db *gorm.DB) (
 	t.Helper()
 	quotRepo := quotation.NewRepository(db)
 	pRepo := pricing.NewRepository(db)
-	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pRepo})
 	custRepo := customer.NewRepository(db)
+	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pRepo}, custRepo)
 	custSvc := customer.NewService(custRepo)
 	catRepo := catalog.NewRepository(db)
 	return custSvc, quotSvc, catRepo

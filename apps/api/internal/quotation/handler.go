@@ -196,6 +196,23 @@ func (h *Handler) Copy(c *gin.Context) {
 	c.JSON(http.StatusCreated, ToResponse(q))
 }
 
+// POST /quotations/preview — non-persistent pricing lookup for the
+// 5-step wizard. Any authenticated user may call; the service returns
+// the same error taxonomy as Submit.
+func (h *Handler) Preview(c *gin.Context) {
+	var req PreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	resp, err := h.svc.Preview(c.Request.Context(), req)
+	if err != nil {
+		h.writeServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // POST /quotations/:id/adjust — reviewer/admin rewrites the submitted
 // snapshot in place. Router-level RequireRole gates the route.
 func (h *Handler) Adjust(c *gin.Context) {

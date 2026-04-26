@@ -178,7 +178,7 @@ func main() {
 	// sees all + approves/rejects. Salesperson ownership is enforced
 	// inside the handler layer.
 	quotRepo := quotation.NewRepository(db)
-	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, custRepo)
 	quotHandler := quotation.NewHandler(quotSvc)
 	quotation.RegisterAuthedRoutes(authed, quotHandler)
 	quotation.RegisterReviewerRoutes(reviewerAdminGroup, quotHandler)

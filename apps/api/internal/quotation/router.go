@@ -8,6 +8,7 @@ import (
 // Inside the handlers we apply finer-grained role/ownership checks.
 func RegisterAuthedRoutes(g *gin.RouterGroup, h *Handler) {
 	g.POST("/quotations", h.Create)
+	g.POST("/quotations/preview", h.Preview)
 	g.GET("/quotations", h.List)
 	g.GET("/quotations/:id", h.Get)
 	g.GET("/quotations/:id/history", h.History)

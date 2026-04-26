@@ -639,3 +639,131 @@ func TestHandler_Adjust_InvalidOnDraft(t *testing.T) {
 		t.Fatalf("want body containing ERR_INVALID_TRANSITION, got %s", w.Body.String())
 	}
 }
+
+func TestHandler_Preview_OK(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, salesID := seedCustomerCountryUser(t, db)
+
+	// Seed one active pricing entry so the preview can produce lines.
+	if err := db.Exec(
+		`INSERT INTO pricing_entries
+		 (id, country_id, service_tier, fee_item, amount_cny_cents, effective_from, created_by)
+		 VALUES (?, ?, 'basic', 'application', 50000, ?, ?)`,
+		uuid.New(), countryID, time.Now(), salesID,
+	).Error; err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc))
+
+	body, _ := json.Marshal(map[string]any{
+		"customer_id":  custID,
+		"country_id":   countryID,
+		"service_tier": "basic",
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/preview", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("preview: status %d body %s", w.Code, w.Body.String())
+	}
+	var resp quotation.PreviewResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.TotalCNYCents != 50000 || len(resp.Lines) != 1 {
+		t.Fatalf("resp = %+v, want 1 line totalling 50000", resp)
+	}
+	if resp.Signature == "" {
+		t.Fatalf("empty signature")
+	}
+}
+
+func TestHandler_Preview_BadBody(t *testing.T) {
+	db, _ := bootPg(t)
+	_, _, salesID := seedCustomerCountryUser(t, db)
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc))
+
+	// Missing country_id.
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/preview", strings.NewReader(`{"customer_id":"00000000-0000-0000-0000-000000000001","service_tier":"basic"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "ERR_INVALID_BODY") {
+		t.Fatalf("body = %s, want ERR_INVALID_BODY", w.Body.String())
+	}
+}
+
+func TestHandler_Preview_CustomerNotFound(t *testing.T) {
+	db, _ := bootPg(t)
+	_, countryID, salesID := seedCustomerCountryUser(t, db)
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc))
+
+	body, _ := json.Marshal(map[string]any{
+		"customer_id":  uuid.New(), // does NOT exist
+		"country_id":   countryID,
+		"service_tier": "basic",
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/preview", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Preview_MissingPricing(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, salesID := seedCustomerCountryUser(t, db)
+	// No pricing entries seeded.
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc))
+
+	body, _ := json.Marshal(map[string]any{
+		"customer_id":  custID,
+		"country_id":   countryID,
+		"service_tier": "basic",
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/preview", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "ERR_MISSING_PRICING") {
+		t.Fatalf("body = %s, want ERR_MISSING_PRICING", w.Body.String())
+	}
+}
