@@ -8,6 +8,7 @@ func RegisterReadRoutes(group *gin.RouterGroup, h *Handler) {
 	g := group.Group("/pricing-entries")
 	g.GET("", h.GetActive)
 	g.GET("/history", h.GetHistory)
+	g.GET("/:id", h.GetByID)
 }
 
 // RegisterAdminRoutes mounts write endpoints on an admin-only group.

@@ -204,3 +204,52 @@ func TestListActive_FiltersByTier(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "standard", got[0].ServiceTier)
 }
+
+// TestRepo_GetByID_ReturnsDeprecatedEntry locks in the M4 assumption
+// that GetByID does NOT filter by effective_to — historical lookup
+// needs to reach rows even after they've been deprecated by a newer
+// version.
+func TestRepo_GetByID_ReturnsDeprecatedEntry(t *testing.T) {
+	db, countryID, userID := bootstrap(t)
+	ctx := context.Background()
+	repo := pricing.NewRepository(db)
+
+	day1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	old, err := repo.ReplaceActive(ctx, pricing.NewEntry{
+		CountryID:      countryID,
+		ServiceTier:    "basic",
+		FeeItem:        "application",
+		AmountCNYCents: 10000,
+		EffectiveFrom:  day1,
+		CreatedBy:      userID,
+	})
+	require.NoError(t, err)
+
+	// Replace deprecates `old` by setting effective_to = day2.
+	_, err = repo.ReplaceActive(ctx, pricing.NewEntry{
+		CountryID:      countryID,
+		ServiceTier:    "basic",
+		FeeItem:        "application",
+		AmountCNYCents: 12000,
+		EffectiveFrom:  day2,
+		CreatedBy:      userID,
+	})
+	require.NoError(t, err)
+
+	// GetByID on the now-deprecated old entry must still return it.
+	got, err := repo.GetByID(ctx, old.ID)
+	require.NoError(t, err)
+	assert.Equal(t, old.ID, got.ID)
+	require.NotNil(t, got.EffectiveTo)
+	assert.Equal(t, int64(10000), got.AmountCNYCents)
+}
+
+// TestRepo_GetByID_NotFound returns ErrNotFound for a random UUID.
+func TestRepo_GetByID_NotFound(t *testing.T) {
+	db, _, _ := bootstrap(t)
+	repo := pricing.NewRepository(db)
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	assert.ErrorIs(t, err, pricing.ErrNotFound)
+}

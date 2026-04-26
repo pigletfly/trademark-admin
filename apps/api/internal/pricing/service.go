@@ -97,3 +97,16 @@ func (s *Service) Deprecate(ctx context.Context, id uuid.UUID, req DeprecateRequ
 	dto := toDTO(*row)
 	return &dto, nil
 }
+
+// GetByID returns one pricing entry by id, regardless of whether
+// it's been deprecated. Used by the traceability endpoint so snapshot
+// lines can be resolved back to their source pricing row (including
+// historical versions).
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*PricingEntryDTO, error) {
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	dto := toDTO(*row)
+	return &dto, nil
+}

@@ -71,6 +71,28 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": rows})
 }
 
+// GetByID GET /pricing-entries/:id — returns one entry (active or
+// deprecated). Used by M4 traceability: snapshot lines carry a
+// source_pricing_entry_id; this endpoint lets the client expand that
+// id back into full pricing context (effective window, amount, etc.).
+func (h *Handler) GetByID(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_ID", "message": "invalid id"})
+		return
+	}
+	dto, err := h.svc.GetByID(c.Request.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"code": "ERR_NOT_FOUND"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": "failed to fetch pricing entry"})
+		return
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
 // PostCreateOrReplace POST /pricing-entries (admin).
 func (h *Handler) PostCreateOrReplace(c *gin.Context) {
 	var req CreateOrReplaceRequest
