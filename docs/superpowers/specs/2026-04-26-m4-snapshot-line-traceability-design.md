@@ -24,6 +24,8 @@ M4 的目标是：
 | SnapshotLine 溯源字段 non-nullable | **`*uuid.UUID`（允许 null）** | Adjust 是 reviewer 手工覆写，按"orphan"语义处理；硬约束 non-null 等于强迫 reviewer UX 做"选条目"下拉，违背覆写的自由度 |
 | 签名包含所有快照字段 | **签名仍为 v2（`fee_item + amount + total`），source_id 不计入** | 老快照无需重算；source_id 是元数据，不影响"金额是否被改过"的判定语义 |
 | 数据迁移脚本回填历史 snapshot | **不迁移，旧 snapshot source=null** | MVP 阶段实际历史数据少；"按 submitted_at 匹配 effective 窗口"的脚本逻辑复杂且风险高，收益小 |
+| 端点注册在 `_authenticated`(任何 role 可调) | **注册到现有 `RegisterReadRoutes`(reviewer+admin)** | 保持与 `GET /pricing-entries` 和 `/history` 的 middleware 组一致；salesperson 无 UI 消费本端点；若未来需要,另起 milestone 放宽 |
+| 新建 `Repository.GetByID` | **复用既有 `Repository.GetByID`** | 该方法已为 Deprecate 而存在,且 `WHERE id = ?` 不过滤 `effective_to`,已满足"deprecated 可查"需求 |
 
 ---
 

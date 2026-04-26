@@ -899,6 +899,103 @@ func TestHandler_SnapshotSourceIDs_LookupPricingEntry(t *testing.T) {
 	}
 }
 
+// TestHandler_Adjust_PreservesSourceIDs covers the HTTP JSON round-trip:
+// reviewer POSTs /:id/adjust with lines whose JSON carries
+// source_pricing_entry_id, and we read back GET /:id and confirm the
+// field persisted through json.Unmarshal → snapshot.Lines.
+func TestHandler_Adjust_PreservesSourceIDs(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, salesID := seedCustomerCountryUser(t, db)
+	reviewerID, _ := ensureReviewer(t, db)
+
+	// Seed one pricing entry for the initial submit.
+	entryID := uuid.New()
+	if err := db.Exec(
+		`INSERT INTO pricing_entries
+		 (id, country_id, service_tier, fee_item, amount_cny_cents, effective_from, created_by)
+		 VALUES (?, ?, 'basic', 'application', 10000, ?, ?)`,
+		entryID, countryID, time.Now(), salesID,
+	).Error; err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	pricingSvc := pricing.NewService(pricingRepo)
+	pricingHandler := pricing.NewHandler(pricingSvc)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc), pricingHandler)
+
+	// Create + submit as salesperson.
+	body, _ := json.Marshal(map[string]any{
+		"customer_id": custID, "country_id": countryID, "service_tier": "basic",
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", "/api/v1/quotations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var created quotation.Response
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+
+	req, _ = http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/"+created.ID.String()+"/submit", nil)
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("submit: %d %s", w.Code, w.Body.String())
+	}
+
+	// Reviewer adjusts — carry one line with source_id, one without.
+	preserved := uuid.New()
+	adjustBody, _ := json.Marshal(map[string]any{
+		"lines": []map[string]any{
+			{"fee_item": "preserved", "amount_cny_cents": 500, "source_pricing_entry_id": preserved.String()},
+			{"fee_item": "orphan", "amount_cny_cents": 700},
+		},
+	})
+	req, _ = http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/"+created.ID.String()+"/adjust", bytes.NewReader(adjustBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", reviewerID.String())
+	req.Header.Set("X-Test-Role", "reviewer")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("adjust: %d %s", w.Code, w.Body.String())
+	}
+
+	// Read back via GET /:id — snapshot should contain both lines with
+	// their source_id state intact.
+	req, _ = http.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/quotations/"+created.ID.String(), nil)
+	req.Header.Set("X-Test-User-ID", reviewerID.String())
+	req.Header.Set("X-Test-Role", "reviewer")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get: %d", w.Code)
+	}
+	var got quotation.Response
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.Snapshot == nil {
+		t.Fatal("snapshot nil")
+	}
+	byItem := map[string]*uuid.UUID{}
+	for i := range got.Snapshot.Lines {
+		byItem[got.Snapshot.Lines[i].FeeItem] = got.Snapshot.Lines[i].SourcePricingEntryID
+	}
+	if byItem["preserved"] == nil || *byItem["preserved"] != preserved {
+		t.Errorf("preserved source: want %s, got %v", preserved, byItem["preserved"])
+	}
+	if byItem["orphan"] != nil {
+		t.Errorf("orphan source: want nil, got %v", byItem["orphan"])
+	}
+}
+
 // ensureReviewer inserts a reviewer user and returns (userID, roleID).
 // Small helper scoped to this test file.
 func ensureReviewer(t *testing.T, db *gorm.DB) (uuid.UUID, uuid.UUID) {
