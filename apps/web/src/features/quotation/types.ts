@@ -14,6 +14,13 @@ export type ServiceTier = 'basic' | 'standard' | 'premium'
 export interface SnapshotLine {
   fee_item: string
   amount_cny_cents: number
+  /**
+   * The pricing_entries.id that this line was derived from. null/undefined
+   * means either a legacy snapshot (created before M4) or a reviewer-adjusted
+   * line ("orphan" manual override). Set when the line came from
+   * pricing.Calculate.
+   */
+  source_pricing_entry_id?: string | null
 }
 
 export interface QuotationSnapshot {

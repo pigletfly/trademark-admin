@@ -344,7 +344,11 @@ export const defaultHandlers = [
       )
     }
     const lines = matched
-      .map((e) => ({ fee_item: e.fee_item, amount_cny_cents: e.amount_cny_cents }))
+      .map((e) => ({
+        fee_item: e.fee_item,
+        amount_cny_cents: e.amount_cny_cents,
+        source_pricing_entry_id: e.id,
+      }))
       .sort((a, b) => a.fee_item.localeCompare(b.fee_item))
     const total = lines.reduce((s, l) => s + l.amount_cny_cents, 0)
     const signature = `mock-${body.country_id}-${body.service_tier}-${total}`
@@ -388,7 +392,11 @@ export const defaultHandlers = [
       return HttpResponse.json({ code: 'ERR_MISSING_PRICING' }, { status: 422 })
     }
     const lines = matching
-      .map((p) => ({ fee_item: p.fee_item, amount_cny_cents: p.amount_cny_cents }))
+      .map((p) => ({
+        fee_item: p.fee_item,
+        amount_cny_cents: p.amount_cny_cents,
+        source_pricing_entry_id: p.id,
+      }))
       .sort((a, b) => a.fee_item.localeCompare(b.fee_item))
     const total = lines.reduce((s, l) => s + l.amount_cny_cents, 0)
     const now = new Date().toISOString()
@@ -551,6 +559,9 @@ export const defaultHandlers = [
     const totalBefore = q.total_cny_cents ?? 0
     const totalAfter = body.lines.reduce((s, l) => s + (l.amount_cny_cents || 0), 0)
     const now = new Date().toISOString()
+    // Adjust-produced lines are "orphan" in M4 semantics — reviewer's
+    // manual override has no originating pricing entry. Intentionally
+    // omit source_pricing_entry_id here (field stays undefined).
     q.snapshot = {
       lines: body.lines.map((l) => ({ ...l })),
       total_cny_cents: totalAfter,
@@ -742,6 +753,9 @@ export function seedQuotationSubmitted(p: {
   const now = new Date().toISOString()
   const tier = p.service_tier ?? 'basic'
   const total = p.total_cny_cents ?? 10000
+  // This seeded snapshot is a test-helper shortcut that doesn't look up
+  // pricing_entries; treat it as a legacy-shaped snapshot and intentionally
+  // omit source_pricing_entry_id (null/undefined === legacy per M4 D1).
   const lines = [{ fee_item: 'application', amount_cny_cents: total }]
   const ymd = now.slice(0, 10).replace(/-/g, '')
   quotations.push({
