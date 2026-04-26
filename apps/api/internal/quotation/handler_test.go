@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
@@ -35,7 +36,7 @@ func (a pricingRepoAdapter) ListActive(ctx context.Context, countryID *uuid.UUID
 // that injects the current user into Gin's context using the key the
 // auth package already uses (`auth.currentUser`). Other handler tests
 // in this repo follow the same pattern — see customer/handler_test.go.
-func buildRouter(t *testing.T, quotHandler *quotation.Handler) *gin.Engine {
+func buildRouter(t *testing.T, quotHandler *quotation.Handler, pricingHandler *pricing.Handler) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -49,6 +50,10 @@ func buildRouter(t *testing.T, quotHandler *quotation.Handler) *gin.Engine {
 	quotation.RegisterAuthedRoutes(authed, quotHandler)
 	reviewer := r.Group("/api/v1", auth.RequireRole("reviewer", "admin"))
 	quotation.RegisterReviewerRoutes(reviewer, quotHandler)
+	// Pricing reads are reviewer+admin in main.go — mirror that so the
+	// traceability endpoint can be exercised in tests under role=admin
+	// or role=reviewer.
+	pricing.RegisterReadRoutes(reviewer, pricingHandler)
 	return r
 }
 
@@ -69,7 +74,7 @@ func TestHandler_HappyPath_SubmitThenApprove(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	// Salesperson creates draft.
 	body, _ := json.Marshal(map[string]any{
@@ -192,7 +197,7 @@ func TestHandler_SalespersonCannotReadAnothersQuotation(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	// Alice creates a quotation.
 	body, _ := json.Marshal(map[string]any{
@@ -303,7 +308,7 @@ func TestHandler_Withdraw_OwnerOK(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
 	if submitted.SerialNo == nil {
@@ -370,7 +375,7 @@ func TestHandler_Withdraw_Forbidden_NonOwner(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
 
@@ -398,7 +403,7 @@ func TestHandler_Withdraw_InvalidFromApproved(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
 
@@ -437,7 +442,7 @@ func TestHandler_Copy_ReturnsFreshDraft(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	source := createAndSubmit(t, r, custID, countryID, aliceID)
 
@@ -494,7 +499,7 @@ func TestHandler_Adjust_RecordsDiff(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
 	if submitted.TotalCNYCents == nil || *submitted.TotalCNYCents != 10000 {
@@ -575,7 +580,7 @@ func TestHandler_Adjust_Forbidden_Salesperson(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
 
@@ -604,7 +609,7 @@ func TestHandler_Adjust_InvalidOnDraft(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	// Alice creates a draft but does NOT submit.
 	body, _ := json.Marshal(map[string]any{
@@ -657,7 +662,7 @@ func TestHandler_Preview_OK(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	body, _ := json.Marshal(map[string]any{
 		"customer_id":  custID,
@@ -694,7 +699,7 @@ func TestHandler_Preview_BadBody(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	// Missing country_id.
 	req, _ := http.NewRequestWithContext(context.Background(), "POST",
@@ -719,7 +724,7 @@ func TestHandler_Preview_CustomerNotFound(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	body, _ := json.Marshal(map[string]any{
 		"customer_id":  uuid.New(), // does NOT exist
@@ -746,7 +751,7 @@ func TestHandler_Preview_MissingPricing(t *testing.T) {
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
 	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
-	r := buildRouter(t, quotation.NewHandler(svc))
+	r := buildRouter(t, quotation.NewHandler(svc), pricing.NewHandler(pricing.NewService(pricingRepo)))
 
 	body, _ := json.Marshal(map[string]any{
 		"customer_id":  custID,
@@ -766,4 +771,146 @@ func TestHandler_Preview_MissingPricing(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "ERR_MISSING_PRICING") {
 		t.Fatalf("body = %s, want ERR_MISSING_PRICING", w.Body.String())
 	}
+}
+
+// TestHandler_SnapshotSourceIDs_LookupPricingEntry exercises the full
+// traceability chain: submit a draft → read snapshot → extract
+// source_pricing_entry_id from each line → hit GET /pricing-entries/:id
+// and confirm we get the underlying entry back.
+func TestHandler_SnapshotSourceIDs_LookupPricingEntry(t *testing.T) {
+	db, _ := bootPg(t)
+	custID, countryID, salesID := seedCustomerCountryUser(t, db)
+
+	// Seed two pricing entries so we have multiple lines to trace.
+	appID := uuid.New()
+	agentID := uuid.New()
+	if err := db.Exec(
+		`INSERT INTO pricing_entries
+		 (id, country_id, service_tier, fee_item, amount_cny_cents, effective_from, created_by)
+		 VALUES (?, ?, 'basic', 'application', 10000, ?, ?)`,
+		appID, countryID, time.Now(), salesID,
+	).Error; err != nil {
+		t.Fatalf("seed pricing app: %v", err)
+	}
+	if err := db.Exec(
+		`INSERT INTO pricing_entries
+		 (id, country_id, service_tier, fee_item, amount_cny_cents, effective_from, created_by)
+		 VALUES (?, ?, 'basic', 'agent', 5000, ?, ?)`,
+		agentID, countryID, time.Now(), salesID,
+	).Error; err != nil {
+		t.Fatalf("seed pricing agent: %v", err)
+	}
+
+	quotRepo := quotation.NewRepository(db)
+	pricingRepo := pricing.NewRepository(db)
+	pricingSvc := pricing.NewService(pricingRepo)
+	pricingHandler := pricing.NewHandler(pricingSvc)
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
+	r := buildRouter(t, quotation.NewHandler(svc), pricingHandler)
+
+	// Create a draft.
+	body, _ := json.Marshal(map[string]any{
+		"customer_id":  custID,
+		"country_id":   countryID,
+		"service_tier": "basic",
+	})
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", "/api/v1/quotations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: status %d body %s", w.Code, w.Body.String())
+	}
+	var created quotation.Response
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+
+	// Submit — freezes snapshot.
+	req, _ = http.NewRequestWithContext(context.Background(), "POST",
+		"/api/v1/quotations/"+created.ID.String()+"/submit", nil)
+	req.Header.Set("X-Test-User-ID", salesID.String())
+	req.Header.Set("X-Test-Role", "salesperson")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("submit: status %d body %s", w.Code, w.Body.String())
+	}
+	var submitted quotation.Response
+	_ = json.Unmarshal(w.Body.Bytes(), &submitted)
+	if submitted.Snapshot == nil {
+		t.Fatal("submitted quotation has nil snapshot")
+	}
+	if len(submitted.Snapshot.Lines) != 2 {
+		t.Fatalf("snapshot lines: want 2, got %d", len(submitted.Snapshot.Lines))
+	}
+
+	// Reviewer user needed to hit GET /pricing-entries/:id (reviewer+admin only).
+	reviewerID, _ := ensureReviewer(t, db)
+
+	// Trace each snapshot line back to its source pricing entry.
+	for _, line := range submitted.Snapshot.Lines {
+		if line.SourcePricingEntryID == nil {
+			t.Errorf("line %s: source id is nil", line.FeeItem)
+			continue
+		}
+		req, _ = http.NewRequestWithContext(context.Background(), "GET",
+			"/api/v1/pricing-entries/"+line.SourcePricingEntryID.String(), nil)
+		req.Header.Set("X-Test-User-ID", reviewerID.String())
+		req.Header.Set("X-Test-Role", "reviewer")
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("lookup line %s: status %d body %s", line.FeeItem, w.Code, w.Body.String())
+		}
+		var entry map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &entry)
+		if entry["fee_item"] != line.FeeItem {
+			t.Errorf("lookup mismatch: snapshot says %s, pricing entry says %v",
+				line.FeeItem, entry["fee_item"])
+		}
+		gotAmount, _ := entry["amount_cny_cents"].(float64)
+		if int64(gotAmount) != line.AmountCNYCents {
+			t.Errorf("amount mismatch for %s: snapshot %d, entry %d",
+				line.FeeItem, line.AmountCNYCents, int64(gotAmount))
+		}
+	}
+
+	// Bonus: 404 on random UUID.
+	req, _ = http.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/pricing-entries/"+uuid.New().String(), nil)
+	req.Header.Set("X-Test-User-ID", reviewerID.String())
+	req.Header.Set("X-Test-Role", "reviewer")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("random id lookup: want 404, got %d body %s", w.Code, w.Body.String())
+	}
+
+	// 400 on invalid UUID.
+	req, _ = http.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/pricing-entries/not-a-uuid", nil)
+	req.Header.Set("X-Test-User-ID", reviewerID.String())
+	req.Header.Set("X-Test-Role", "reviewer")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid uuid: want 400, got %d body %s", w.Code, w.Body.String())
+	}
+}
+
+// ensureReviewer inserts a reviewer user and returns (userID, roleID).
+// Small helper scoped to this test file.
+func ensureReviewer(t *testing.T, db *gorm.DB) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	var reviewerRoleID string
+	require.NoError(t, db.Raw("SELECT id FROM roles WHERE code = ?", "reviewer").Scan(&reviewerRoleID).Error)
+	rid, err := uuid.Parse(reviewerRoleID)
+	require.NoError(t, err)
+	uid := uuid.New()
+	require.NoError(t, db.Exec(
+		`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		uid, "M4 Reviewer", "m4-reviewer-"+uid.String()+"@test.local", "hash", rid,
+	).Error)
+	return uid, rid
 }
