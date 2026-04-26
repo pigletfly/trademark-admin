@@ -107,6 +107,9 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*PricingEntryDTO, 
 	if err != nil {
 		return nil, err
 	}
+	if row == nil {
+		return nil, ErrNotFound
+	}
 	dto := toDTO(*row)
 	return &dto, nil
 }
