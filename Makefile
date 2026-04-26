@@ -1,4 +1,4 @@
-.PHONY: help install dev api web up down logs build test fmt tidy up-gotenberg
+.PHONY: help install dev api web up down logs build test fmt tidy up-gotenberg e2e
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  fmt           format frontend code"
 	@echo "  tidy          go mod tidy"
 	@echo "  up-gotenberg  start only the gotenberg service (for local api dev)"
+	@echo "  e2e           run Playwright E2E (requires docker compose up -d)"
 
 install:
 	pnpm install
@@ -47,3 +48,14 @@ tidy:
 
 up-gotenberg:
 	docker compose up -d gotenberg
+
+e2e:
+	@echo "→ Checking api health at http://localhost:8080/health"
+	@curl -fsS http://localhost:8080/health > /dev/null 2>&1 || ( \
+		echo "API not responding. Run 'docker compose up -d' first."; exit 1 \
+	)
+	@echo "→ Checking web at http://localhost:5173"
+	@curl -fsS http://localhost:5173/ > /dev/null 2>&1 || ( \
+		echo "Web not responding. Run 'docker compose up -d' first."; exit 1 \
+	)
+	pnpm -C packages/e2e test
