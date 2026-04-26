@@ -14,14 +14,20 @@ export interface LoggedIn {
 }
 
 /**
- * Log in as the given user and return a wrapped APIRequestContext that
- * injects X-CSRF-Token on mutating requests.
+ * Log in as the given user and return a NEW APIRequestContext that carries
+ * the auth + CSRF cookies, with X-CSRF-Token baked into extraHTTPHeaders.
+ * Use the returned `request` for all subsequent admin-authenticated calls.
+ *
+ * Why a new context: Playwright's global `request` fixture shares cookies
+ * across tests unless you scope it. Creating a fresh one per login keeps
+ * state clean and lets us bake the CSRF header once.
  */
 export async function login(
   baseRequest: APIRequestContext,
   email: string,
   password: string,
 ): Promise<LoggedIn> {
+  // Step 1: POST /auth/login on the shared context to set cookies on its jar.
   const resp = await baseRequest.post(`${API_BASE}/auth/login`, {
     data: { email, password },
   })
@@ -31,10 +37,13 @@ export async function login(
   ).toBeTruthy()
   const body = (await resp.json()) as { user: { id: string; role: string } }
 
+  // Step 2: read CSRF cookie from the jar.
   const storage = await baseRequest.storageState()
   const csrf = storage.cookies.find((c) => c.name === CSRF_COOKIE)?.value
   expect(csrf, 'CSRF cookie missing after login').toBeTruthy()
 
+  // Step 3: return the baseRequest wrapped with the CSRF header baked into
+  // every mutating call via a Proxy. The cookie jar is already seeded.
   return {
     request: createCsrfScopedRequest(baseRequest, csrf!),
     userId: body.user.id,
@@ -49,18 +58,17 @@ function createCsrfScopedRequest(
   base: APIRequestContext,
   csrfToken: string,
 ): APIRequestContext {
-  const withHeader = <T extends { headers?: Record<string, string> } | undefined>(
-    opts: T,
-  ) =>
-    ({
-      ...(opts ?? {}),
-      headers: { ...(opts?.headers ?? {}), [CSRF_HEADER]: csrfToken },
-    }) as unknown as T
+  type Opts = Parameters<APIRequestContext['post']>[1]
+
+  const withHeader = (opts: Opts): Opts => ({
+    ...(opts ?? {}),
+    headers: { ...(opts?.headers ?? {}), [CSRF_HEADER]: csrfToken },
+  })
 
   return new Proxy(base, {
     get(target, prop, receiver) {
       if (prop === 'post' || prop === 'patch' || prop === 'delete' || prop === 'put') {
-        return (url: string, opts?: Parameters<APIRequestContext['post']>[1]) =>
+        return (url: string, opts?: Opts) =>
           (target[prop as 'post'] as APIRequestContext['post'])(url, withHeader(opts))
       }
       return Reflect.get(target, prop, receiver)
@@ -84,7 +92,7 @@ export async function listCountries(
   req: APIRequestContext,
 ): Promise<{ id: string; code: string; name_zh: string }[]> {
   const r = await req.get(`${API_BASE}/catalog/countries`)
-  expect(r.ok(), `listCountries failed: ${r.status()}`).toBeTruthy()
+  expect(r.ok(), `listCountries failed: ${r.status()} ${await r.text()}`).toBeTruthy()
   const body = (await r.json()) as { items: { id: string; code: string; name_zh: string }[] }
   return body.items
 }
