@@ -1,6 +1,7 @@
 package quotation
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -64,5 +65,29 @@ func TestComputeAdjustSignature_EmptyLines(t *testing.T) {
 	sig := computeAdjustSignature(nil)
 	if len(sig) != 64 {
 		t.Fatalf("empty input should still produce a valid sha256 hex signature, got len %d", len(sig))
+	}
+}
+
+// TestDecodeLegacySnapshot_SourceNil verifies that a snapshot JSONB
+// blob written before M4 (missing the source_pricing_entry_id key)
+// decodes with Lines[i].SourcePricingEntryID == nil, without error.
+// This is the behavior json.Unmarshal gives us for free on a pointer
+// field tagged with omitempty — this test locks it against future
+// regressions (e.g. if someone adds a required tag or a custom
+// UnmarshalJSON).
+func TestDecodeLegacySnapshot_SourceNil(t *testing.T) {
+	legacy := []byte(`{"lines":[{"fee_item":"application","amount_cny_cents":10000}],"total_cny_cents":10000,"signature":"abc"}`)
+	var s Snapshot
+	if err := json.Unmarshal(legacy, &s); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(s.Lines) != 1 {
+		t.Fatalf("lines: want 1, got %d", len(s.Lines))
+	}
+	if s.Lines[0].SourcePricingEntryID != nil {
+		t.Errorf("legacy source: want nil, got %v", s.Lines[0].SourcePricingEntryID)
+	}
+	if s.Lines[0].FeeItem != "application" {
+		t.Errorf("fee_item: want application, got %s", s.Lines[0].FeeItem)
 	}
 }

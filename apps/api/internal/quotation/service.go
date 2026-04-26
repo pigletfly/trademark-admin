@@ -177,7 +177,12 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 		Signature:     calc.Signature,
 	}
 	for _, l := range calc.Lines {
-		snap.Lines = append(snap.Lines, SnapshotLine{FeeItem: l.FeeItem, AmountCNYCents: l.AmountCNYCents})
+		sourceID := l.SourcePricingEntryID
+		snap.Lines = append(snap.Lines, SnapshotLine{
+			FeeItem:              l.FeeItem,
+			AmountCNYCents:       l.AmountCNYCents,
+			SourcePricingEntryID: &sourceID,
+		})
 	}
 	raw, err := json.Marshal(snap)
 	if err != nil {
@@ -429,7 +434,12 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 
 	lines := make([]SnapshotLine, 0, len(calc.Lines))
 	for _, l := range calc.Lines {
-		lines = append(lines, SnapshotLine{FeeItem: l.FeeItem, AmountCNYCents: l.AmountCNYCents})
+		sourceID := l.SourcePricingEntryID
+		lines = append(lines, SnapshotLine{
+			FeeItem:              l.FeeItem,
+			AmountCNYCents:       l.AmountCNYCents,
+			SourcePricingEntryID: &sourceID,
+		})
 	}
 	return &PreviewResponse{
 		Lines:         lines,

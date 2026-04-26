@@ -147,6 +147,15 @@ func newService(entries []pricing.PricingEntry) (*Service, *fakeRepo) {
 	return NewService(r, &fakePricingRepo{entries: entries}, newFakeCustomerRepo()), r
 }
 
+// newServiceWithCustomer returns the fake customer repo too so tests
+// that exercise customer-dependent service methods (Preview, Create's
+// customer validation) can seed records.
+func newServiceWithCustomer(entries []pricing.PricingEntry) (*Service, *fakeRepo, *fakeCustomerRepo) {
+	r := newFakeRepo()
+	custRepo := newFakeCustomerRepo()
+	return NewService(r, &fakePricingRepo{entries: entries}, custRepo), r, custRepo
+}
+
 func TestCreate_InvalidTier(t *testing.T) {
 	svc, _ := newService(nil)
 	_, err := svc.Create(context.Background(), uuid.New(), CreateRequest{
@@ -503,5 +512,117 @@ func TestService_Preview_MissingPricing(t *testing.T) {
 	})
 	if !errors.Is(err, ErrMissingPricing) {
 		t.Fatalf("err = %v, want ErrMissingPricing", err)
+	}
+}
+
+func TestSubmit_CarriesSourceIDs(t *testing.T) {
+	country := uuid.New()
+	owner := uuid.New()
+	from := time.Now().Add(-24 * time.Hour)
+	entryA := pricing.PricingEntry{
+		ID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		FeeItem: "application", AmountCNYCents: 10000, EffectiveFrom: from, CreatedBy: owner,
+	}
+	entryB := pricing.PricingEntry{
+		ID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		FeeItem: "agent", AmountCNYCents: 5000, EffectiveFrom: from, CreatedBy: owner,
+	}
+	svc, _ := newService([]pricing.PricingEntry{entryA, entryB})
+	q, err := svc.Create(context.Background(), owner, CreateRequest{
+		CustomerID: uuid.New(), CountryID: country, ServiceTier: "basic",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	submitted, err := svc.Submit(context.Background(), q.ID, owner)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	snap, err := submitted.DecodeSnapshot()
+	if err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if len(snap.Lines) != 2 {
+		t.Fatalf("lines: want 2, got %d", len(snap.Lines))
+	}
+	byItem := map[string]*uuid.UUID{}
+	for i := range snap.Lines {
+		byItem[snap.Lines[i].FeeItem] = snap.Lines[i].SourcePricingEntryID
+	}
+	if byItem["agent"] == nil || *byItem["agent"] != entryB.ID {
+		t.Errorf("agent line source: want %s, got %v", entryB.ID, byItem["agent"])
+	}
+	if byItem["application"] == nil || *byItem["application"] != entryA.ID {
+		t.Errorf("application line source: want %s, got %v", entryA.ID, byItem["application"])
+	}
+}
+
+func TestPreview_CarriesSourceIDs(t *testing.T) {
+	country := uuid.New()
+	caller := uuid.New()
+	custID := uuid.New()
+	from := time.Now().Add(-24 * time.Hour)
+	entryA := pricing.PricingEntry{
+		ID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		FeeItem: "fee_x", AmountCNYCents: 7000, EffectiveFrom: from, CreatedBy: caller,
+	}
+	svc, _, custRepo := newServiceWithCustomer([]pricing.PricingEntry{entryA})
+	custRepo.byID[custID] = &customer.Customer{ID: custID}
+
+	res, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID: custID, CountryID: country, ServiceTier: "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if len(res.Lines) != 1 {
+		t.Fatalf("lines: want 1, got %d", len(res.Lines))
+	}
+	if res.Lines[0].SourcePricingEntryID == nil || *res.Lines[0].SourcePricingEntryID != entryA.ID {
+		t.Errorf("source id: want %s, got %v", entryA.ID, res.Lines[0].SourcePricingEntryID)
+	}
+}
+
+func TestAdjust_RequestSourcesPreserved(t *testing.T) {
+	country := uuid.New()
+	reviewer := uuid.New()
+	owner := uuid.New()
+	from := time.Now().Add(-24 * time.Hour)
+	entry := pricing.PricingEntry{
+		ID: uuid.New(), CountryID: country, ServiceTier: "basic",
+		FeeItem: "application", AmountCNYCents: 10000, EffectiveFrom: from, CreatedBy: owner,
+	}
+	svc, _ := newService([]pricing.PricingEntry{entry})
+	q, err := svc.Create(context.Background(), owner, CreateRequest{
+		CustomerID: uuid.New(), CountryID: country, ServiceTier: "basic",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := svc.Submit(context.Background(), q.ID, owner); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	preservedID := uuid.New()
+	adjusted, err := svc.Adjust(context.Background(), q.ID, reviewer, []SnapshotLine{
+		{FeeItem: "preserved", AmountCNYCents: 1000, SourcePricingEntryID: &preservedID},
+		{FeeItem: "orphan", AmountCNYCents: 2000},
+	}, nil)
+	if err != nil {
+		t.Fatalf("adjust: %v", err)
+	}
+	snap, err := adjusted.DecodeSnapshot()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byItem := map[string]*uuid.UUID{}
+	for i := range snap.Lines {
+		byItem[snap.Lines[i].FeeItem] = snap.Lines[i].SourcePricingEntryID
+	}
+	if byItem["preserved"] == nil || *byItem["preserved"] != preservedID {
+		t.Errorf("preserved line source: want %s, got %v", preservedID, byItem["preserved"])
+	}
+	if byItem["orphan"] != nil {
+		t.Errorf("orphan line source: want nil, got %v", byItem["orphan"])
 	}
 }

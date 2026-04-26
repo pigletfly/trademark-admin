@@ -39,10 +39,14 @@ type AdjustRequest struct {
 	Comment *string        `json:"comment,omitempty"`
 }
 
-// SnapshotLine is one priced fee item. Shape mirrors pricing.CalcLine.
+// SnapshotLine is one priced fee item. Shape mirrors pricing.CalcLine,
+// except SourcePricingEntryID is nullable — reviewer-adjusted lines
+// (manual override) have no source entry, and legacy snapshots written
+// before M4 decode to nil here (missing JSON key -> nil *uuid.UUID).
 type SnapshotLine struct {
-	FeeItem        string `json:"fee_item"`
-	AmountCNYCents int64  `json:"amount_cny_cents"`
+	FeeItem              string     `json:"fee_item"`
+	AmountCNYCents       int64      `json:"amount_cny_cents"`
+	SourcePricingEntryID *uuid.UUID `json:"source_pricing_entry_id,omitempty"`
 }
 
 // Snapshot is what's persisted in snapshot_json. Signature + total live
