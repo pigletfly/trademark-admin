@@ -21,8 +21,19 @@ export function EditQuotationPage() {
   // Load server draft into store once, on first render where quotation
   // is available. The store's loadForEdit overwrites any localStorage
   // residue (new-mode draft or stale edit-mode state from another id).
+  // Two guards:
+  // - status === 'draft': avoid populating the store for non-draft
+  //   quotations (the status-check effect below will redirect).
+  // - editingId !== id: avoid clobbering in-progress edits when
+  //   React Query refetches `quotation` (window focus, invalidation,
+  //   staleTime expiry) — loadForEdit unconditionally resets
+  //   currentStep to 0 and overwrites the draft.
   useEffect(() => {
-    if (quotation) {
+    if (
+      quotation &&
+      quotation.status === 'draft' &&
+      store.getState().editingId !== id
+    ) {
       store.getState().loadForEdit(id, quotation)
     }
   }, [quotation, id, store])
