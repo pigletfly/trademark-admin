@@ -85,3 +85,22 @@ type HistoryEntry struct {
 	At         time.Time       `json:"at"`
 	DiffJSON   json.RawMessage `json:"diff_json,omitempty"`
 }
+
+// PreviewRequest is the body of POST /quotations/preview — a non-persistent
+// pricing lookup used by the wizard before the quotation row exists.
+// Validation tags mirror CreateRequest so bad bodies are rejected before
+// reaching the service.
+type PreviewRequest struct {
+	CustomerID  uuid.UUID `json:"customer_id"  binding:"required"`
+	CountryID   uuid.UUID `json:"country_id"   binding:"required"`
+	ServiceTier string    `json:"service_tier" binding:"required"`
+}
+
+// PreviewResponse is the shape returned by POST /quotations/preview.
+// Intentionally mirrors the quotation Snapshot so the frontend can reuse
+// the same rendering component (QuotationSnapshotView).
+type PreviewResponse struct {
+	Lines         []SnapshotLine `json:"lines"`
+	TotalCNYCents int64          `json:"total_cny_cents"`
+	Signature     string         `json:"signature"`
+}
