@@ -122,3 +122,26 @@ func TestCalculate_SignatureResistsDelimiterInjection(t *testing.T) {
 		t.Fatalf("signature collision via delimiter injection: both %q", rInjected.Signature)
 	}
 }
+
+// TestCalculate_CarriesSourceIDs verifies every CalcLine in the result
+// carries the originating PricingEntry.ID — M4 traceability requirement.
+func TestCalculate_CarriesSourceIDs(t *testing.T) {
+	c := uuid.New()
+	a := mustEntry(t, c, "basic", "aa_fee", 1000, false)
+	b := mustEntry(t, c, "basic", "bb_fee", 2000, false)
+
+	res, err := Calculate([]PricingEntry{a, b}, CalcInput{c, "basic"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(res.Lines) != 2 {
+		t.Fatalf("lines: want 2, got %d", len(res.Lines))
+	}
+	// Lines sort by fee_item so aa_fee comes first.
+	if res.Lines[0].SourcePricingEntryID != a.ID {
+		t.Errorf("line[0] source: want %s, got %s", a.ID, res.Lines[0].SourcePricingEntryID)
+	}
+	if res.Lines[1].SourcePricingEntryID != b.ID {
+		t.Errorf("line[1] source: want %s, got %s", b.ID, res.Lines[1].SourcePricingEntryID)
+	}
+}

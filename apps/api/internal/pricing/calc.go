@@ -17,10 +17,13 @@ type CalcInput struct {
 	ServiceTier string    `json:"service_tier"`
 }
 
-// CalcLine is one fee item included in the total.
+// CalcLine is one fee item included in the total. SourcePricingEntryID
+// is the ID of the PricingEntry row this line was derived from — lets
+// downstream snapshot consumers trace the line back for audit.
 type CalcLine struct {
-	FeeItem        string `json:"fee_item"`
-	AmountCNYCents int64  `json:"amount_cny_cents"`
+	FeeItem              string    `json:"fee_item"`
+	AmountCNYCents       int64     `json:"amount_cny_cents"`
+	SourcePricingEntryID uuid.UUID `json:"source_pricing_entry_id"`
 }
 
 // CalcResult is the deterministic output of Calculate.
@@ -61,7 +64,11 @@ func Calculate(entries []PricingEntry, input CalcInput) (CalcResult, error) {
 		if e.ServiceTier != input.ServiceTier {
 			continue
 		}
-		lines = append(lines, CalcLine{FeeItem: e.FeeItem, AmountCNYCents: e.AmountCNYCents})
+		lines = append(lines, CalcLine{
+			FeeItem:              e.FeeItem,
+			AmountCNYCents:       e.AmountCNYCents,
+			SourcePricingEntryID: e.ID,
+		})
 		total += e.AmountCNYCents
 	}
 	if len(lines) == 0 {
