@@ -66,3 +66,45 @@ clean DB:
     pnpm -C packages/e2e report     # HTML: screenshots, video, trace viewer
 
 Click through to the failing test for trace + screenshot + console output.
+
+## Troubleshooting
+
+### "API not responding" from `make e2e`
+
+Check compose status:
+
+    docker compose ps
+
+If api is unhealthy, tail logs:
+
+    docker compose logs api
+
+### "quotationId missing — run 02-salesperson-journey first"
+
+Spec 03 or 04 executed before 02 succeeded. Start fresh:
+
+    pnpm -C packages/e2e test
+
+### Flaky "timeout waiting for /quotations/<uuid>"
+
+If preview/submit is slow on first run (cold postgres), bump the wizard
+timeout in `fixtures/pages/wizard.page.ts` `saveAndSubmit`, or restart
+the compose stack with a warm DB.
+
+### Browser binary not found
+
+    pnpm -C packages/e2e install:browsers
+
+### Port 3000 already allocated (gotenberg can't start)
+
+OrbStack or another container runtime may have a separate container
+holding port 3000. Either free the port, or modify `docker-compose.yml`
+to `expose: ["3000"]` instead of `ports: ["3000:3000"]` — the api
+container reaches gotenberg on the docker network regardless.
+
+### DB gets polluted across runs
+
+Each run generates a fresh 8-hex suffix, so test data never collides. But
+rows accumulate. Clean slate:
+
+    docker compose down -v && docker compose up -d
