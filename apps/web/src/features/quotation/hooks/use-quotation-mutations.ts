@@ -155,3 +155,70 @@ export function useAdjustQuotation() {
     onError: (err) => toast.error(mapQuotationError(err)),
   })
 }
+
+/**
+ * useCreateAndSubmit runs POST /quotations then POST /quotations/:id/submit.
+ *
+ * Failure semantics:
+ * - If create fails: throws; caller shows toast and draft stays in localStorage
+ *   so the user can retry.
+ * - If create succeeds but submit fails: resolves with { id, submitted: false }.
+ *   The caller should clear localStorage (draft exists on the server) and
+ *   surface a toast like "草稿已创建,但提交失败,请在详情页重试".
+ */
+export function useCreateAndSubmit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (
+      body: CreateQuotationRequest,
+    ): Promise<{ id: string; submitted: boolean }> => {
+      const created = await api.post<Quotation>('/quotations', body)
+      try {
+        await api.post<Quotation>(`/quotations/${created.data.id}/submit`)
+        return { id: created.data.id, submitted: true }
+      } catch {
+        return { id: created.data.id, submitted: false }
+      }
+    },
+    onSuccess: (result) => {
+      invalidate(qc, result.id)
+      if (result.submitted) {
+        toast.success('报价已提交待审核')
+      } else {
+        toast.warning('草稿已创建,但提交失败,请在详情页重试')
+      }
+    },
+    onError: (err) => toast.error(mapQuotationError(err)),
+  })
+}
+
+/**
+ * useUpdateAndSubmit runs PATCH /quotations/:id then POST /quotations/:id/submit.
+ * Same failure semantics as useCreateAndSubmit.
+ */
+export function useUpdateAndSubmit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (args: {
+      id: string
+      body: UpdateDraftRequest
+    }): Promise<{ id: string; submitted: boolean }> => {
+      await api.patch<Quotation>(`/quotations/${args.id}`, args.body)
+      try {
+        await api.post<Quotation>(`/quotations/${args.id}/submit`)
+        return { id: args.id, submitted: true }
+      } catch {
+        return { id: args.id, submitted: false }
+      }
+    },
+    onSuccess: (result) => {
+      invalidate(qc, result.id)
+      if (result.submitted) {
+        toast.success('报价已提交待审核')
+      } else {
+        toast.warning('草稿已更新,但提交失败,请在详情页重试')
+      }
+    },
+    onError: (err) => toast.error(mapQuotationError(err)),
+  })
+}
