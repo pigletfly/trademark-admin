@@ -36,7 +36,7 @@ export function QuotationDetail() {
             <Card>
               <CardHeader className='flex flex-row items-center justify-between'>
                 <CardTitle className='flex items-center gap-3 text-2xl'>
-                  <span className='font-mono text-base'>{q.id.slice(0, 8)}</span>
+                  <span className='font-mono text-base'>{q.serial_no ?? q.id.slice(0, 8)}</span>
                   <QuotationStatusBadge status={q.status} />
                 </CardTitle>
                 <div className='flex items-center gap-2'>

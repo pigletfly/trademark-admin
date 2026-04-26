@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,9 +15,12 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { Quotation } from '../types'
 import {
   useCancelQuotation,
+  useCopyQuotation,
   useReviewQuotation,
   useSubmitQuotation,
+  useWithdrawQuotation,
 } from '../hooks'
+import { QuotationAdjustSheet } from './quotation-adjust-sheet'
 
 interface Props {
   quotation: Quotation
@@ -25,10 +29,13 @@ interface Props {
 
 export function QuotationActionBar({ quotation, onEditDraft }: Props) {
   const user = useAuthStore((s) => s.auth.user)
+  const navigate = useNavigate()
   const submit = useSubmitQuotation()
   const approve = useReviewQuotation(true)
   const reject = useReviewQuotation(false)
   const cancel = useCancelQuotation()
+  const withdrawMut = useWithdrawQuotation()
+  const copyMut = useCopyQuotation()
 
   const [commentOpen, setCommentOpen] = useState<'approve' | 'reject' | 'cancel' | null>(null)
   const [comment, setComment] = useState('')
@@ -42,6 +49,8 @@ export function QuotationActionBar({ quotation, onEditDraft }: Props) {
   const canSubmit = quotation.status === 'draft' && isOwner
   const canCancel = quotation.status === 'draft' && isOwner
   const canReview = quotation.status === 'submitted' && isReviewer
+  const canWithdraw = quotation.status === 'submitted' && isOwner
+  const canAdjust = quotation.status === 'submitted' && isReviewer
 
   const confirmComment = async () => {
     const trimmed = comment.trim() || undefined
@@ -50,6 +59,11 @@ export function QuotationActionBar({ quotation, onEditDraft }: Props) {
     if (commentOpen === 'cancel') await cancel.mutateAsync({ id: quotation.id, comment: trimmed })
     setCommentOpen(null)
     setComment('')
+  }
+
+  const handleCopy = async () => {
+    const newDraft = await copyMut.mutateAsync(quotation.id)
+    navigate({ to: '/quotations/$id', params: { id: newDraft.id } })
   }
 
   return (
@@ -66,6 +80,21 @@ export function QuotationActionBar({ quotation, onEditDraft }: Props) {
             取消草稿
           </Button>
         )}
+        {canWithdraw && (
+          <Button
+            variant='outline'
+            onClick={() => withdrawMut.mutateAsync(quotation.id)}
+            disabled={withdrawMut.isPending}
+          >
+            撤回草稿
+          </Button>
+        )}
+        {canAdjust && (
+          <QuotationAdjustSheet
+            quotation={quotation}
+            trigger={<Button variant='outline'>调价</Button>}
+          />
+        )}
         {canReview && (
           <>
             <Button onClick={() => setCommentOpen('approve')} disabled={approve.isPending}>
@@ -80,6 +109,9 @@ export function QuotationActionBar({ quotation, onEditDraft }: Props) {
             </Button>
           </>
         )}
+        <Button variant='ghost' onClick={handleCopy} disabled={copyMut.isPending}>
+          复制报价
+        </Button>
       </div>
 
       <Dialog open={commentOpen != null} onOpenChange={(o) => !o && setCommentOpen(null)}>

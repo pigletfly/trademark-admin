@@ -57,6 +57,7 @@ let quotations: Array<{
   }
   total_cny_cents: number | null
   signature: string | null
+  serial_no: string | null
   submitted_at: string | null
   reviewed_at: string | null
   reviewed_by: string | null
@@ -67,6 +68,14 @@ let quotations: Array<{
   updated_at: string
 }> = []
 
+type HistoryDiff = {
+  lines_added?: { fee_item: string; before: number; after: number }[]
+  lines_removed?: { fee_item: string; before: number; after: number }[]
+  lines_updated?: { fee_item: string; before: number; after: number }[]
+  total_before: number
+  total_after: number
+}
+
 // Quotation status-change history log keyed by quotation id.
 let quotationHistory: Record<
   string,
@@ -76,6 +85,7 @@ let quotationHistory: Record<
     actor_id: string | null
     comment: string | null
     at: string
+    diff_json?: HistoryDiff | null
   }>
 > = {}
 
@@ -291,6 +301,7 @@ export const defaultHandlers = [
       snapshot: null,
       total_cny_cents: null,
       signature: null,
+      serial_no: null,
       submitted_at: null,
       reviewed_at: null,
       reviewed_by: null,
@@ -347,6 +358,8 @@ export const defaultHandlers = [
     q.snapshot = { lines, total_cny_cents: total, signature: 'mock-sig-' + q.id.slice(0, 8) }
     q.total_cny_cents = total
     q.signature = q.snapshot.signature
+    const ymd = now.slice(0, 10).replace(/-/g, '')
+    q.serial_no = 'Q' + ymd + '0001'
     q.submitted_at = now
     q.updated_at = now
     quotationHistory[q.id] = quotationHistory[q.id] ?? []
@@ -425,6 +438,97 @@ export const defaultHandlers = [
       actor_id: adminUser.id,
       comment: body.comment ?? null,
       at: now,
+    })
+    return HttpResponse.json(q)
+  }),
+
+  // Withdraw: submitted → draft. Clears snapshot/total/signature but keeps
+  // serial_no so the record retains its identity.
+  http.post('/api/v1/quotations/:id/withdraw', ({ params }) => {
+    const q = quotations.find((x) => x.id === params.id)
+    if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    if (q.status !== 'submitted') {
+      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+    }
+    const now = new Date().toISOString()
+    q.status = 'draft'
+    q.snapshot = null
+    q.total_cny_cents = null
+    q.signature = null
+    q.updated_at = now
+    quotationHistory[q.id] = quotationHistory[q.id] ?? []
+    quotationHistory[q.id].push({
+      from_status: 'submitted',
+      to_status: 'draft',
+      actor_id: adminUser.id,
+      comment: null,
+      at: now,
+    })
+    return HttpResponse.json(q)
+  }),
+
+  // Copy: any status → brand-new draft cloned from source. No snapshot/serial.
+  http.post('/api/v1/quotations/:id/copy', ({ params }) => {
+    const src = quotations.find((x) => x.id === params.id)
+    if (!src) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    const now = new Date().toISOString()
+    const copied = {
+      id: randomUUID(),
+      customer_id: src.customer_id,
+      country_id: src.country_id,
+      service_tier: src.service_tier,
+      status: 'draft' as const,
+      snapshot: null,
+      total_cny_cents: null,
+      signature: null,
+      serial_no: null,
+      submitted_at: null,
+      reviewed_at: null,
+      reviewed_by: null,
+      review_comment: null,
+      notes: src.notes,
+      created_by: adminUser.id,
+      created_at: now,
+      updated_at: now,
+    }
+    quotations.push(copied)
+    return HttpResponse.json(copied, { status: 201 })
+  }),
+
+  // Adjust: rewrite a submitted quotation's snapshot + totals and append a
+  // history row with a totals-only diff.
+  http.post('/api/v1/quotations/:id/adjust', async ({ params, request }) => {
+    const q = quotations.find((x) => x.id === params.id)
+    if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    if (q.status !== 'submitted') {
+      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+    }
+    const body = (await request.json()) as {
+      lines: { fee_item: string; amount_cny_cents: number }[]
+      comment?: string
+    }
+    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+      return HttpResponse.json({ code: 'ERR_EMPTY_ADJUST' }, { status: 422 })
+    }
+    const totalBefore = q.total_cny_cents ?? 0
+    const totalAfter = body.lines.reduce((s, l) => s + (l.amount_cny_cents || 0), 0)
+    const now = new Date().toISOString()
+    q.snapshot = {
+      lines: body.lines.map((l) => ({ ...l })),
+      total_cny_cents: totalAfter,
+      signature: 'mock-sig-' + q.id.slice(0, 8) + '-adj',
+    }
+    q.total_cny_cents = totalAfter
+    q.signature = q.snapshot.signature
+    q.updated_at = now
+    quotationHistory[q.id] = quotationHistory[q.id] ?? []
+    quotationHistory[q.id].push({
+      from_status: 'submitted',
+      to_status: 'submitted',
+      actor_id: adminUser.id,
+      comment: body.comment ?? null,
+      at: now,
+      diff_json: { total_before: totalBefore, total_after: totalAfter },
     })
     return HttpResponse.json(q)
   }),
@@ -572,12 +676,52 @@ export function seedQuotationDraft(p: {
     snapshot: null,
     total_cny_cents: null,
     signature: null,
+    serial_no: null,
     submitted_at: null,
     reviewed_at: null,
     reviewed_by: null,
     review_comment: null,
     notes: null,
     created_by: adminUser.id,
+    created_at: now,
+    updated_at: now,
+  })
+  return id
+}
+
+// seedQuotationSubmitted creates a submitted quotation with snapshot +
+// serial_no already populated, skipping the submit mutation path so tests
+// can jump straight to post-submit flows (withdraw/copy/adjust).
+export function seedQuotationSubmitted(p: {
+  id?: string
+  customer_id: string
+  country_id: string
+  service_tier?: 'basic' | 'standard' | 'premium'
+  total_cny_cents?: number
+  owner_id?: string
+}): string {
+  const id = p.id ?? randomUUID()
+  const now = new Date().toISOString()
+  const tier = p.service_tier ?? 'basic'
+  const total = p.total_cny_cents ?? 10000
+  const lines = [{ fee_item: 'application', amount_cny_cents: total }]
+  const ymd = now.slice(0, 10).replace(/-/g, '')
+  quotations.push({
+    id,
+    customer_id: p.customer_id,
+    country_id: p.country_id,
+    service_tier: tier,
+    status: 'submitted',
+    snapshot: { lines, total_cny_cents: total, signature: 'mock-sig-' + id.slice(0, 8) },
+    total_cny_cents: total,
+    signature: 'mock-sig-' + id.slice(0, 8),
+    serial_no: 'Q' + ymd + '0001',
+    submitted_at: now,
+    reviewed_at: null,
+    reviewed_by: null,
+    review_comment: null,
+    notes: null,
+    created_by: p.owner_id ?? adminUser.id,
     created_at: now,
     updated_at: now,
   })

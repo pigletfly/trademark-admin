@@ -23,6 +23,11 @@ export function QuotationHistoryTimeline({ items }: Props) {
             </span>
           </div>
           {e.comment && <p className='mt-1 text-sm text-muted-foreground'>{e.comment}</p>}
+          {e.diff_json && (
+            <p className='mt-1 text-xs text-muted-foreground'>
+              调价：¥{(e.diff_json.total_before / 100).toFixed(2)} → ¥{(e.diff_json.total_after / 100).toFixed(2)}
+            </p>
+          )}
         </li>
       ))}
     </ol>

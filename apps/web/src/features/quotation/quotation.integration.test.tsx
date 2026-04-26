@@ -19,6 +19,7 @@ import {
   seedCustomer,
   seedPricingEntry,
   seedQuotationDraft,
+  seedQuotationSubmitted,
 } from '@/test-utils/msw/handlers'
 import { useAuthStore } from '@/stores/auth-store'
 import { __resetAuthInterceptorState } from '@/lib/api'
@@ -144,6 +145,103 @@ describe('quotation integration', () => {
     // Once approved, the export actions become visible.
     await expect.element(screen.getByRole('button', { name: /导出 PDF/ })).toBeInTheDocument()
     await expect.element(screen.getByRole('button', { name: /导出 Word/ })).toBeInTheDocument()
+  })
+})
+
+describe('withdraw + copy + adjust', () => {
+  beforeAll(async () => {
+    await worker.start({ onUnhandledRequest: 'bypass' })
+  })
+  beforeEach(() => {
+    resetMswState()
+    __resetAuthInterceptorState()
+    useAuthStore.getState().auth.reset()
+  })
+  afterAll(() => {
+    worker.stop()
+  })
+
+  it('salesperson withdraws a submitted quotation back to draft', async () => {
+    const custId = seedCustomer({ name: 'Acme 国际' })
+    const quoteId = seedQuotationSubmitted({
+      customer_id: custId,
+      country_id: COUNTRY_CN_ID,
+    })
+
+    const { router, queryClient } = buildRouter('salesperson', `/quotations/${quoteId}`)
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    // Initial submitted badge.
+    await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
+
+    // Click withdraw — flips back to draft.
+    await userEvent.click(screen.getByRole('button', { name: '撤回草稿' }))
+
+    await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
+    await expect.element(screen.getByText('报价已撤回为草稿')).toBeInTheDocument()
+  })
+
+  it('reviewer adjusts a submitted snapshot and sees diff in history', async () => {
+    const custId = seedCustomer({ name: 'Acme 国际' })
+    const quoteId = seedQuotationSubmitted({
+      customer_id: custId,
+      country_id: COUNTRY_CN_ID,
+      total_cny_cents: 10000,
+    })
+
+    const { router, queryClient } = buildRouter('reviewer', `/quotations/${quoteId}`)
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    // Make sure the submitted snapshot rendered before interacting.
+    await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
+    await expect.element(screen.getByText('application')).toBeInTheDocument()
+
+    // Open the adjust sheet.
+    await userEvent.click(screen.getByRole('button', { name: '调价' }))
+
+    // The sheet contains one spinbutton (the amount input). Replace it.
+    const amountInput = screen.getByRole('spinbutton').first()
+    await userEvent.fill(amountInput, '15000')
+
+    // Save the adjustment.
+    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    // Confirmation toast + new diff row in the history timeline.
+    await expect.element(screen.getByText('调价已保存')).toBeInTheDocument()
+    await expect.element(screen.getByText(/¥100\.00 → ¥150\.00/)).toBeInTheDocument()
+  })
+
+  it('copy lands on detail page of the new draft', async () => {
+    const custId = seedCustomer({ name: 'Acme 国际' })
+    const quoteId = seedQuotationSubmitted({
+      customer_id: custId,
+      country_id: COUNTRY_CN_ID,
+    })
+
+    const { router, queryClient } = buildRouter('admin', `/quotations/${quoteId}`)
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    // Source record shows 已提交 first.
+    await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
+
+    // Click the copy button.
+    await userEvent.click(screen.getByRole('button', { name: '复制报价' }))
+
+    // Router should navigate to the new draft; detail page shows 草稿 badge.
+    await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
+    await expect.element(screen.getByText('报价已复制为新草稿')).toBeInTheDocument()
   })
 })
 
