@@ -51,11 +51,9 @@ up-gotenberg:
 
 e2e:
 	@echo "→ Checking api health at http://localhost:8080/health"
-	@curl -fsS http://localhost:8080/health > /dev/null 2>&1 || ( \
-		echo "API not responding. Run 'docker compose up -d' first."; exit 1 \
-	)
+	@curl -fsS http://localhost:8080/health > /dev/null 2>&1 \
+		|| { echo "API not responding. Run 'docker compose up -d' first."; exit 1; }
 	@echo "→ Checking web at http://localhost:5173"
-	@curl -fsS http://localhost:5173/ > /dev/null 2>&1 || ( \
-		echo "Web not responding. Run 'docker compose up -d' first."; exit 1 \
-	)
+	@curl -fsS http://localhost:5173/ > /dev/null 2>&1 \
+		|| { echo "Web not responding. Run 'docker compose up -d' first."; exit 1; }
 	pnpm -C packages/e2e test

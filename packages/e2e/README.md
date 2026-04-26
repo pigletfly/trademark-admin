@@ -16,7 +16,11 @@ Then verify the API is healthy:
 The compose file already provides a bootstrap admin
 (`admin@example.com` / `change-me-on-first-login`) — no extra seeding needed.
 
-Before the first run install the browser binary:
+Install workspace dependencies (first time only):
+
+    pnpm install
+
+Install the browser binary (first time only):
 
     pnpm -C packages/e2e install:browsers
 
