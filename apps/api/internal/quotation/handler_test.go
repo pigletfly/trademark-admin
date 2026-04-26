@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/quotation"
 )
@@ -67,7 +68,7 @@ func TestHandler_HappyPath_SubmitThenApprove(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	// Salesperson creates draft.
@@ -190,7 +191,7 @@ func TestHandler_SalespersonCannotReadAnothersQuotation(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	// Alice creates a quotation.
@@ -301,7 +302,7 @@ func TestHandler_Withdraw_OwnerOK(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -368,7 +369,7 @@ func TestHandler_Withdraw_Forbidden_NonOwner(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -396,7 +397,7 @@ func TestHandler_Withdraw_InvalidFromApproved(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -435,7 +436,7 @@ func TestHandler_Copy_ReturnsFreshDraft(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	source := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -492,7 +493,7 @@ func TestHandler_Adjust_RecordsDiff(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -573,7 +574,7 @@ func TestHandler_Adjust_Forbidden_Salesperson(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	submitted := createAndSubmit(t, r, custID, countryID, aliceID)
@@ -602,7 +603,7 @@ func TestHandler_Adjust_InvalidOnDraft(t *testing.T) {
 
 	quotRepo := quotation.NewRepository(db)
 	pricingRepo := pricing.NewRepository(db)
-	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo})
+	svc := quotation.NewService(quotRepo, pricingRepoAdapter{pricingRepo}, customer.NewRepository(db))
 	r := buildRouter(t, quotation.NewHandler(svc))
 
 	// Alice creates a draft but does NOT submit.

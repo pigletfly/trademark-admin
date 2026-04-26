@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/platform/audit"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
 )
@@ -44,16 +45,28 @@ type pricingRepo interface {
 	ListActive(ctx context.Context, countryID *uuid.UUID) ([]pricing.PricingEntry, error)
 }
 
+// customerRepo is the subset of customer.Repository we need for the
+// Preview endpoint. Get with ownerID=nil is an existence check (returns
+// customer.ErrNotFound if the id isn't found). We depend on the
+// interface rather than the concrete type to keep the service testable
+// with fakes.
+type customerRepo interface {
+	Get(ctx context.Context, id uuid.UUID, ownerID *uuid.UUID) (*customer.Customer, error)
+}
+
 // Service owns quotation business rules. Role enforcement lives in the
 // handler/middleware layer; Service assumes the caller has the right
 // role and only checks *ownership* within that role (e.g. a salesperson
 // may only edit their own drafts).
 type Service struct {
-	repo        repo
-	pricingRepo pricingRepo
+	repo         repo
+	pricingRepo  pricingRepo
+	customerRepo customerRepo
 }
 
-func NewService(r repo, p pricingRepo) *Service { return &Service{repo: r, pricingRepo: p} }
+func NewService(r repo, p pricingRepo, c customerRepo) *Service {
+	return &Service{repo: r, pricingRepo: p, customerRepo: c}
+}
 
 // ListFilter feeds Service.List / repo.List.
 type ListFilter struct {
@@ -370,6 +383,59 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Quotation, error) {
 // is set by the handler before calling.
 func (s *Service) List(ctx context.Context, f ListFilter) ([]Quotation, int64, error) {
 	return s.repo.List(ctx, f)
+}
+
+// Preview computes a snapshot for the (customer, country, tier) triple
+// WITHOUT touching the quotations table. Used by the 5-step wizard to
+// show the business user what pricing they're about to freeze before
+// they commit to creating a draft row.
+//
+// Contract:
+//   - tier must be in the valid enum → ErrInvalidTier
+//   - customer_id must exist → ErrNotFound
+//   - at least one active pricing entry must match (country, tier)
+//     → ErrMissingPricing otherwise
+//
+// No side effects. Safe for any authenticated role.
+func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResponse, error) {
+	if !pricing.IsValidServiceTier(req.ServiceTier) {
+		return nil, ErrInvalidTier
+	}
+	cust, err := s.customerRepo.Get(ctx, req.CustomerID, nil)
+	if err != nil {
+		if errors.Is(err, customer.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("quotation: customer lookup: %w", err)
+	}
+	if cust == nil {
+		return nil, ErrNotFound
+	}
+
+	entries, err := s.pricingRepo.ListActive(ctx, &req.CountryID)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: list pricing: %w", err)
+	}
+	calc, err := pricing.Calculate(entries, pricing.CalcInput{
+		CountryID:   req.CountryID,
+		ServiceTier: req.ServiceTier,
+	})
+	if err != nil {
+		if errors.Is(err, pricing.ErrNoMatchingEntries) {
+			return nil, ErrMissingPricing
+		}
+		return nil, fmt.Errorf("quotation: pricing calculate: %w", err)
+	}
+
+	lines := make([]SnapshotLine, 0, len(calc.Lines))
+	for _, l := range calc.Lines {
+		lines = append(lines, SnapshotLine{FeeItem: l.FeeItem, AmountCNYCents: l.AmountCNYCents})
+	}
+	return &PreviewResponse{
+		Lines:         lines,
+		TotalCNYCents: calc.TotalCNYCents,
+		Signature:     calc.Signature,
+	}, nil
 }
 
 // History returns the transition log.

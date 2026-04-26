@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
 )
 
@@ -114,6 +115,22 @@ func (f *fakeRepo) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// fakeCustomerRepo lets service tests control whether "customer exists"
+// without touching Postgres. A nil entry for an id means "not found".
+type fakeCustomerRepo struct{ byID map[uuid.UUID]*customer.Customer }
+
+func newFakeCustomerRepo() *fakeCustomerRepo {
+	return &fakeCustomerRepo{byID: map[uuid.UUID]*customer.Customer{}}
+}
+
+func (f *fakeCustomerRepo) Get(ctx context.Context, id uuid.UUID, ownerID *uuid.UUID) (*customer.Customer, error) {
+	c := f.byID[id]
+	if c == nil {
+		return nil, customer.ErrNotFound
+	}
+	return c, nil
+}
+
 // fakePricingRepo always returns the configured entries regardless of
 // country filter.
 type fakePricingRepo struct {
@@ -127,7 +144,7 @@ func (f *fakePricingRepo) ListActive(ctx context.Context, _ *uuid.UUID) ([]prici
 
 func newService(entries []pricing.PricingEntry) (*Service, *fakeRepo) {
 	r := newFakeRepo()
-	return NewService(r, &fakePricingRepo{entries: entries}), r
+	return NewService(r, &fakePricingRepo{entries: entries}, newFakeCustomerRepo()), r
 }
 
 func TestCreate_InvalidTier(t *testing.T) {
@@ -418,4 +435,73 @@ func TestService_Copy_FreshDraftOwnedByActor(t *testing.T) {
 			t.Fatalf("want ErrNotFound, got %v", err)
 		}
 	})
+}
+
+func TestService_Preview_Success(t *testing.T) {
+	custID, countryID := uuid.New(), uuid.New()
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	pricingRepo := &fakePricingRepo{entries: []pricing.PricingEntry{
+		{ID: uuid.New(), CountryID: countryID, ServiceTier: "basic", FeeItem: "application", AmountCNYCents: 50000},
+	}}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:  custID,
+		CountryID:   countryID,
+		ServiceTier: "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if len(resp.Lines) != 1 || resp.Lines[0].FeeItem != "application" || resp.Lines[0].AmountCNYCents != 50000 {
+		t.Fatalf("lines = %+v, want one application line", resp.Lines)
+	}
+	if resp.TotalCNYCents != 50000 {
+		t.Fatalf("total = %d, want 50000", resp.TotalCNYCents)
+	}
+	if len(resp.Signature) != 64 {
+		t.Fatalf("signature len = %d, want 64", len(resp.Signature))
+	}
+}
+
+func TestService_Preview_InvalidTier(t *testing.T) {
+	svc := NewService(newFakeRepo(), &fakePricingRepo{}, newFakeCustomerRepo())
+	_, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:  uuid.New(),
+		CountryID:   uuid.New(),
+		ServiceTier: "bogus",
+	})
+	if !errors.Is(err, ErrInvalidTier) {
+		t.Fatalf("err = %v, want ErrInvalidTier", err)
+	}
+}
+
+func TestService_Preview_CustomerNotFound(t *testing.T) {
+	svc := NewService(newFakeRepo(), &fakePricingRepo{}, newFakeCustomerRepo())
+	_, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:  uuid.New(),
+		CountryID:   uuid.New(),
+		ServiceTier: "basic",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestService_Preview_MissingPricing(t *testing.T) {
+	custID, countryID := uuid.New(), uuid.New()
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	// No pricing entries seeded → Calculate returns ErrNoMatchingEntries.
+	svc := NewService(newFakeRepo(), &fakePricingRepo{}, custRepo)
+
+	_, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:  custID,
+		CountryID:   countryID,
+		ServiceTier: "basic",
+	})
+	if !errors.Is(err, ErrMissingPricing) {
+		t.Fatalf("err = %v, want ErrMissingPricing", err)
+	}
 }
