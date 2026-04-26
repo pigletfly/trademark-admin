@@ -21,46 +21,47 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { User, UserRole } from '../types'
-import { usersColumns } from './users-columns'
+import type { AuditLog } from '../types'
+import { auditLogsColumns } from './audit-logs-columns'
 
 interface Props {
-  data: User[]
+  data: AuditLog[]
   total: number
   page: number
   pageSize: number
-  queryText: string
-  roleFilter: UserRole | ''
-  onQueryChange: (q: string) => void
-  onRoleChange: (role: UserRole | '') => void
-  onPageChange: (page: number) => void
+  resourceType: string
+  userId: string
+  onResourceTypeChange: (v: string) => void
+  onUserIdChange: (v: string) => void
+  onPageChange: (p: number) => void
 }
 
-const ROLE_OPTIONS: { value: UserRole | ''; label: string }[] = [
-  { value: '', label: '全部角色' },
-  { value: 'salesperson', label: '业务员' },
-  { value: 'reviewer', label: '国际部商务' },
-  { value: 'admin', label: '管理员' },
+const RESOURCE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: '全部资源' },
+  { value: 'user', label: '用户' },
+  { value: 'customer', label: '客户' },
+  { value: 'quotation', label: '报价' },
+  { value: 'pricing_entry', label: '定价' },
+  { value: 'country', label: '国家' },
 ]
 
-export function UsersTable({
+export function AuditLogsTable({
   data,
   total,
   page,
   pageSize,
-  queryText,
-  roleFilter,
-  onQueryChange,
-  onRoleChange,
+  resourceType,
+  userId,
+  onResourceTypeChange,
+  onUserIdChange,
   onPageChange,
 }: Props) {
-  const [draft, setDraft] = useState(queryText)
+  const [userDraft, setUserDraft] = useState(userId)
   const table = useReactTable({
     data,
-    columns: usersColumns,
+    columns: auditLogsColumns,
     getCoreRowModel: getCoreRowModel(),
   })
-
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
   return (
@@ -69,41 +70,41 @@ export function UsersTable({
         className='flex flex-wrap items-center gap-2'
         onSubmit={(e) => {
           e.preventDefault()
-          onQueryChange(draft.trim())
+          onUserIdChange(userDraft.trim())
         }}
       >
-        <Input
-          placeholder='按姓名或邮箱搜索'
-          className='max-w-xs'
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-        />
         <Select
-          value={roleFilter || 'all'}
-          onValueChange={(v) => onRoleChange(v === 'all' ? '' : (v as UserRole))}
+          value={resourceType || 'all'}
+          onValueChange={(v) => onResourceTypeChange(v === 'all' ? '' : v)}
         >
           <SelectTrigger className='w-40'>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {ROLE_OPTIONS.map((o) => (
+            {RESOURCE_OPTIONS.map((o) => (
               <SelectItem key={o.value || 'all'} value={o.value || 'all'}>
                 {o.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <Input
+          placeholder='按操作人 UUID 过滤'
+          className='max-w-xs'
+          value={userDraft}
+          onChange={(e) => setUserDraft(e.target.value)}
+        />
         <Button type='submit' variant='secondary'>
           搜索
         </Button>
-        {(queryText || roleFilter) && (
+        {(resourceType || userId) && (
           <Button
             type='button'
             variant='ghost'
             onClick={() => {
-              setDraft('')
-              onQueryChange('')
-              onRoleChange('')
+              setUserDraft('')
+              onResourceTypeChange('')
+              onUserIdChange('')
             }}
           >
             清除
@@ -113,16 +114,13 @@ export function UsersTable({
       <div className='overflow-hidden rounded-md border'>
         <Table>
           <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
+            {table.getHeaderGroups().map((hg) => (
+              <TableRow key={hg.id}>
+                {hg.headers.map((h) => (
+                  <TableHead key={h.id}>
+                    {h.isPlaceholder
                       ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
+                      : flexRender(h.column.columnDef.header, h.getContext())}
                   </TableHead>
                 ))}
               </TableRow>
@@ -145,10 +143,10 @@ export function UsersTable({
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={usersColumns.length}
+                  colSpan={auditLogsColumns.length}
                   className='h-24 text-center'
                 >
-                  暂无用户
+                  暂无审计记录
                 </TableCell>
               </TableRow>
             )}

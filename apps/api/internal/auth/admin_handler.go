@@ -72,6 +72,16 @@ func (h *AdminHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_BAD_REQUEST", "message": err.Error()})
 		return
 	}
+	// Self-protection: a user cannot change their own role or status.
+	// Name/phone edits remain allowed so admins can still fix typos on their
+	// own profile.
+	if actor := CurrentUser(c); actor.ID == id && (req.RoleCode != nil || req.Status != nil) {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    "ERR_SELF_PROTECTED",
+			"message": "cannot change your own role or status",
+		})
+		return
+	}
 	u, err := h.svc.UpdateUser(c.Request.Context(), id, req)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -89,6 +99,15 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_BAD_REQUEST", "message": "invalid id"})
+		return
+	}
+	// Self-protection: admins cannot reset their own password via this flow —
+	// rely on another admin or a dedicated change-password endpoint.
+	if actor := CurrentUser(c); actor.ID == id {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    "ERR_SELF_PROTECTED",
+			"message": "cannot reset your own password",
+		})
 		return
 	}
 	pw, err := h.svc.ResetPassword(c.Request.Context(), id)

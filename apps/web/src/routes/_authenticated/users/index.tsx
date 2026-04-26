@@ -1,32 +1,22 @@
-import z from 'zod'
+import { z } from 'zod'
 import { createFileRoute } from '@tanstack/react-router'
+import { requireRole } from '@/features/auth/guards'
 import { Users } from '@/features/users'
-import { roles } from '@/features/users/data/data'
 
 const usersSearchSchema = z.object({
-  page: z.number().optional().catch(1),
-  pageSize: z.number().optional().catch(10),
-  // Facet filters
-  status: z
-    .array(
-      z.union([
-        z.literal('active'),
-        z.literal('inactive'),
-        z.literal('invited'),
-        z.literal('suspended'),
-      ])
-    )
-    .optional()
-    .catch([]),
+  q: z.string().optional().catch(''),
   role: z
-    .array(z.enum(roles.map((r) => r.value as (typeof roles)[number]['value'])))
+    .enum(['salesperson', 'reviewer', 'admin'])
     .optional()
-    .catch([]),
-  // Per-column text filter (example for username)
-  username: z.string().optional().catch(''),
+    .catch(undefined),
+  page: z.number().optional().catch(1),
+  page_size: z.number().optional().catch(20),
 })
 
 export const Route = createFileRoute('/_authenticated/users/')({
+  beforeLoad: async ({ context }) => {
+    await requireRole(context, ['admin'])
+  },
   validateSearch: usersSearchSchema,
   component: Users,
 })

@@ -6,7 +6,9 @@ import {
   FileText,
   HelpCircle,
   LayoutDashboard,
+  ScrollText,
   Settings,
+  Users as UsersIcon,
 } from 'lucide-react'
 import type { AuthUser } from '@/stores/auth-store'
 import { type NavGroup, type SidebarData } from '../types'
@@ -61,6 +63,21 @@ function navGroupsFor(role: AuthUser['role']): NavGroup[] {
           title: '尼斯分类',
           url: '/catalog/nice-categories',
           icon: BookOpen,
+        },
+      ],
+    })
+    base.push({
+      title: '权限',
+      items: [
+        {
+          title: '用户管理',
+          url: '/users',
+          icon: UsersIcon,
+        },
+        {
+          title: '审计日志',
+          url: '/audit-logs',
+          icon: ScrollText,
         },
       ],
     })
