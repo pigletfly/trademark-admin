@@ -17,7 +17,7 @@ export function SignIn() {
 
   return (
     <AuthLayout>
-      <Card className='max-w-sm gap-4'>
+      <Card className='w-full gap-4'>
         <CardHeader>
           <CardTitle className='text-lg tracking-tight'>登录</CardTitle>
           <CardDescription>
