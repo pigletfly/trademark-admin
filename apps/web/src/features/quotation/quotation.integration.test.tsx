@@ -26,6 +26,9 @@ import { __resetAuthInterceptorState } from '@/lib/api'
 import { Quotations } from '@/features/quotation'
 import { QuotationDetail } from '@/features/quotation/detail'
 import { QuotationExportActions } from '@/features/quotation/components/quotation-export-actions'
+import { NewQuotationPage } from '@/routes/_authenticated/quotations/new'
+import { EditQuotationPage } from '@/routes/_authenticated/quotations/$id.edit'
+import { __resetWizardStorePool } from '@/features/quotation/wizard/quotation-wizard'
 import type { Quotation } from '@/features/quotation/types'
 
 // Fixed IDs so seed + router + assertions line up.
@@ -66,8 +69,18 @@ function buildRouter(role: 'admin' | 'salesperson' | 'reviewer', initialPath: st
     path: '/quotations/$id',
     component: QuotationDetail,
   })
+  const newRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/quotations/new',
+    component: NewQuotationPage,
+  })
+  const editRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/quotations/$id/edit',
+    component: EditQuotationPage,
+  })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([listRoute, detailRoute]),
+    routeTree: rootRoute.addChildren([listRoute, detailRoute, newRoute, editRoute]),
     history: createMemoryHistory({ initialEntries: [initialPath] }),
     context: { queryClient },
   })
@@ -320,5 +333,170 @@ describe('QuotationExportActions', () => {
     expect(capturedBody).toEqual({ format: 'pdf', language: 'bilingual' })
 
     openSpy.mockRestore()
+  })
+})
+
+describe('quotation wizard M3', () => {
+  beforeAll(async () => {
+    await worker.start({ onUnhandledRequest: 'bypass' })
+  })
+  beforeEach(() => {
+    resetMswState()
+    __resetAuthInterceptorState()
+    useAuthStore.getState().auth.reset()
+    localStorage.clear()
+    __resetWizardStorePool()
+  })
+  afterAll(() => {
+    worker.stop()
+  })
+
+  async function seedWizardPrereqs() {
+    const custId = seedCustomer({ name: 'Acme 国际' })
+    seedPricingEntry({
+      country_id: COUNTRY_CN_ID,
+      service_tier: 'basic',
+      fee_item: 'application',
+      amount_cny_cents: 50000,
+    })
+    return { custId }
+  }
+
+  it('new → 5 steps → save draft → list shows new row', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
+    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+
+    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
+    await userEvent.click(screen.getByRole('option').first())
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+
+    await expect.element(screen.getByText(/application/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
+  })
+
+  it('new → 5 steps → save and submit → status becomes submitted', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
+    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
+    await userEvent.click(screen.getByRole('option').first())
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+
+    await expect.element(screen.getByText(/application/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '保存并提交' }))
+    await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
+  })
+
+  it('edit → change tier → save and submit → status=submitted', async () => {
+    const { custId } = await seedWizardPrereqs()
+    const draftId = seedQuotationDraft({
+      customer_id: custId,
+      country_id: COUNTRY_CN_ID,
+      service_tier: 'basic',
+    })
+    // Add pricing for premium tier so the post-edit preview finds
+    // matching pricing entries and submit doesn't fail.
+    seedPricingEntry({
+      country_id: COUNTRY_CN_ID,
+      service_tier: 'premium',
+      fee_item: 'application',
+      amount_cny_cents: 80000,
+    })
+
+    const { router, queryClient } = buildRouter('salesperson', `/quotations/${draftId}/edit`)
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /尊享/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await expect.element(screen.getByText(/application/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '保存并提交' }))
+    await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
+  })
+
+  it('resume banner: pre-seeded localStorage → banner shows → discard clears form', async () => {
+    await seedWizardPrereqs()
+    localStorage.setItem(
+      `quotation-wizard-draft:${ADMIN_ID}`,
+      JSON.stringify({
+        state: {
+          currentStep: 2,
+          editingId: null,
+          draft: {
+            customer_id: 'stale-customer',
+            country_id: COUNTRY_CN_ID,
+            service_tier: 'standard',
+            notes: 'stale notes',
+          },
+        },
+        version: 0,
+      }),
+    )
+
+    const { router, queryClient } = buildRouter('admin', '/quotations/new')
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await expect.element(screen.getByText(/未完成的草稿/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /放弃/ }))
+    await expect.element(screen.getByText(/未完成的草稿/)).not.toBeInTheDocument()
+  })
+
+  it('preview error: ERR_MISSING_PRICING → retry button + both saves disabled', async () => {
+    seedCustomer({ name: 'Acme 国际' })
+
+    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
+    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
+    await userEvent.click(screen.getByRole('option').first())
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+
+    await expect.element(screen.getByText(/该国家\/级别暂无定价/)).toBeInTheDocument()
+    await expect.element(screen.getByRole('button', { name: '保存草稿' })).toBeDisabled()
+    await expect.element(screen.getByRole('button', { name: '保存并提交' })).toBeDisabled()
+    await expect.element(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 })

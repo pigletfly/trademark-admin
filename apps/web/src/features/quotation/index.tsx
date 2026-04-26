@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
@@ -15,7 +14,6 @@ import {
 import { useQuotationsList } from './hooks'
 import { quotationColumns } from './components/quotations-columns'
 import { QuotationsTable } from './components/quotations-table'
-import { QuotationFormSheet } from './components/quotation-form-sheet'
 import type { QuotationStatus } from './types'
 import { QUOTATION_STATUS_LABEL_ZH } from './types'
 
@@ -36,7 +34,6 @@ const STATUS_OPTIONS: { value: QuotationStatus | '__all__'; label: string }[] = 
 export function Quotations() {
   const search = useSearch({ strict: false }) as QuotationsSearch
   const navigate = useNavigate()
-  const [createOpen, setCreateOpen] = useState(false)
 
   const query = {
     status: search.status,
@@ -61,7 +58,9 @@ export function Quotations() {
       <Main className='flex flex-col gap-4'>
         <div className='flex items-center justify-between'>
           <h2 className='text-2xl font-bold'>报价列表</h2>
-          <Button onClick={() => setCreateOpen(true)}>新建报价</Button>
+          <Button asChild>
+            <Link to='/quotations/new'>新建报价</Link>
+          </Button>
         </div>
         <div className='flex items-center gap-3'>
           <Select
@@ -88,7 +87,6 @@ export function Quotations() {
           isLoading={isLoading}
         />
       </Main>
-      <QuotationFormSheet open={createOpen} onOpenChange={setCreateOpen} />
     </>
   )
 }

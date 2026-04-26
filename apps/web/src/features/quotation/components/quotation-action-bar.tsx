@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,10 +24,9 @@ import { QuotationAdjustSheet } from './quotation-adjust-sheet'
 
 interface Props {
   quotation: Quotation
-  onEditDraft: () => void
 }
 
-export function QuotationActionBar({ quotation, onEditDraft }: Props) {
+export function QuotationActionBar({ quotation }: Props) {
   const user = useAuthStore((s) => s.auth.user)
   const navigate = useNavigate()
   const submit = useSubmitQuotation()
@@ -69,7 +68,11 @@ export function QuotationActionBar({ quotation, onEditDraft }: Props) {
   return (
     <>
       <div className='flex flex-wrap gap-2'>
-        {canEdit && <Button variant='outline' onClick={onEditDraft}>编辑草稿</Button>}
+        {canEdit && (
+          <Button asChild variant='outline'>
+            <Link to='/quotations/$id/edit' params={{ id: quotation.id }}>编辑草稿</Link>
+          </Button>
+        )}
         {canSubmit && (
           <Button onClick={() => submit.mutateAsync(quotation.id)} disabled={submit.isPending}>
             提交审核

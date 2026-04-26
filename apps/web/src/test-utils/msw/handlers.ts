@@ -315,6 +315,44 @@ export const defaultHandlers = [
     return HttpResponse.json(q, { status: 201 })
   }),
 
+  // POST preview: non-persistent pricing calculation used by the
+  // wizard's preview step. Mirrors the real endpoint's behaviour —
+  // looks up customer, then pricing entries, returns lines + total
+  // + signature. Does NOT create a quotation.
+  http.post('/api/v1/quotations/preview', async ({ request }) => {
+    const body = (await request.json()) as {
+      customer_id: string
+      country_id: string
+      service_tier: 'basic' | 'standard' | 'premium'
+    }
+    if (!customers.find((c) => c.id === body.customer_id)) {
+      return HttpResponse.json(
+        { code: 'ERR_NOT_FOUND', message: 'customer not found' },
+        { status: 404 },
+      )
+    }
+    const matched = pricingEntries.filter(
+      (e) =>
+        e.country_id === body.country_id &&
+        e.service_tier === body.service_tier &&
+        e.effective_to === null,
+    )
+    if (matched.length === 0) {
+      return HttpResponse.json(
+        { code: 'ERR_MISSING_PRICING', message: 'no pricing entries' },
+        { status: 422 },
+      )
+    }
+    const lines = matched
+      .map((e) => ({ fee_item: e.fee_item, amount_cny_cents: e.amount_cny_cents }))
+      .sort((a, b) => a.fee_item.localeCompare(b.fee_item))
+    const total = lines.reduce((s, l) => s + l.amount_cny_cents, 0)
+    const signature = `mock-${body.country_id}-${body.service_tier}-${total}`
+      .padEnd(64, '0')
+      .slice(0, 64)
+    return HttpResponse.json({ lines, total_cny_cents: total, signature })
+  }),
+
   http.get('/api/v1/quotations/:id', ({ params }) => {
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })

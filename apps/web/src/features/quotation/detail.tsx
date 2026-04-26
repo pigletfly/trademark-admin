@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,13 +11,11 @@ import { QuotationSnapshotView } from './components/quotation-snapshot'
 import { QuotationActionBar } from './components/quotation-action-bar'
 import { QuotationExportActions } from './components/quotation-export-actions'
 import { QuotationHistoryTimeline } from './components/quotation-history-timeline'
-import { QuotationFormSheet } from './components/quotation-form-sheet'
 
 export function QuotationDetail() {
   const params = useParams({ strict: false }) as { id: string }
   const { data: q, isLoading } = useQuotation(params.id)
   const { data: history } = useQuotationHistory(params.id)
-  const [editOpen, setEditOpen] = useState(false)
 
   return (
     <>
@@ -40,7 +37,7 @@ export function QuotationDetail() {
                   <QuotationStatusBadge status={q.status} />
                 </CardTitle>
                 <div className='flex items-center gap-2'>
-                  <QuotationActionBar quotation={q} onEditDraft={() => setEditOpen(true)} />
+                  <QuotationActionBar quotation={q} />
                   <QuotationExportActions quotation={q} />
                 </div>
               </CardHeader>
@@ -78,8 +75,6 @@ export function QuotationDetail() {
                 <QuotationHistoryTimeline items={history?.items ?? []} />
               </CardContent>
             </Card>
-
-            <QuotationFormSheet open={editOpen} onOpenChange={setEditOpen} initial={q} />
           </>
         )}
       </Main>
