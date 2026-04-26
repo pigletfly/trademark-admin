@@ -1,10 +1,13 @@
 import { Link, useParams } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { customerDetailQueryOptions } from '@/features/customers/hooks'
+import { useCountries } from '@/features/catalog/hooks/use-countries'
 import { useQuotation, useQuotationHistory } from './hooks'
 import { QuotationStatusBadge } from './components/quotation-status-badge'
 import { QuotationSnapshotView } from './components/quotation-snapshot'
@@ -16,6 +19,14 @@ export function QuotationDetail() {
   const params = useParams({ strict: false }) as { id: string }
   const { data: q, isLoading } = useQuotation(params.id)
   const { data: history } = useQuotationHistory(params.id)
+  // Countries must include disabled so deprecated countries on historical
+  // quotations still resolve to a name instead of falling back to the id.
+  const { data: countries } = useCountries(true)
+  const { data: customer } = useQuery({
+    ...customerDetailQueryOptions(q?.customer_id ?? ''),
+    enabled: !!q?.customer_id,
+  })
+  const country = q ? countries?.find((c) => c.id === q.country_id) : undefined
 
   return (
     <>
@@ -43,8 +54,14 @@ export function QuotationDetail() {
               </CardHeader>
               <CardContent className='grid gap-6 md:grid-cols-2'>
                 <div className='space-y-2 text-sm'>
-                  <div><span className='text-muted-foreground'>客户：</span>{q.customer_id}</div>
-                  <div><span className='text-muted-foreground'>国家：</span>{q.country_id}</div>
+                  <div>
+                    <span className='text-muted-foreground'>客户：</span>
+                    {customer?.name ?? q.customer_id}
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>国家：</span>
+                    {country ? `${country.name_zh}（${country.code}）` : q.country_id}
+                  </div>
                   <div><span className='text-muted-foreground'>服务级别：</span>{q.service_tier}</div>
                   <div><span className='text-muted-foreground'>备注：</span>{q.notes || '—'}</div>
                   <div><span className='text-muted-foreground'>提交时间：</span>
