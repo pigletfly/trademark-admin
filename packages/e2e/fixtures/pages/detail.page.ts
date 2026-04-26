@@ -73,22 +73,4 @@ export class DetailPage {
     return await reqPromise
   }
 
-  /**
-   * After `triggerBilingualPdfExport`, wait for the response and verify
-   * download_url carries a signed token query parameter.
-   */
-  async assertExportResponseHasSignedDownloadUrl() {
-    const resp = await this.page.waitForResponse(
-      (r) =>
-        r.url().includes('/quotations/') &&
-        r.url().endsWith('/export') &&
-        r.request().method() === 'POST',
-      { timeout: 15_000 },
-    )
-    expect(resp.ok(), `export POST not ok: ${resp.status()}`).toBeTruthy()
-    const body = (await resp.json()) as { download_url: string }
-    expect(body.download_url).toMatch(
-      /\/api\/v1\/exports\/[0-9a-f-]{36}\/download\?token=/,
-    )
-  }
 }
