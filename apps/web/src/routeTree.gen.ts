@@ -42,6 +42,7 @@ import { Route as AuthenticatedCustomersIdRouteImport } from './routes/_authenti
 import { Route as AuthenticatedCatalogNiceCategoriesRouteImport } from './routes/_authenticated/catalog/nice-categories'
 import { Route as AuthenticatedCatalogCountriesRouteImport } from './routes/_authenticated/catalog/countries'
 import { Route as AuthenticatedQuotationsIdPrintRouteImport } from './routes/_authenticated/quotations/$id.print'
+import { Route as AuthenticatedQuotationsIdEditRouteImport } from './routes/_authenticated/quotations/$id.edit'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -224,6 +225,12 @@ const AuthenticatedQuotationsIdPrintRoute =
     path: '/print',
     getParentRoute: () => AuthenticatedQuotationsIdRoute,
   } as any)
+const AuthenticatedQuotationsIdEditRoute =
+  AuthenticatedQuotationsIdEditRouteImport.update({
+    id: '/edit',
+    path: '/edit',
+    getParentRoute: () => AuthenticatedQuotationsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -257,6 +264,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/tasks/': typeof AuthenticatedTasksIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
+  '/quotations/$id/edit': typeof AuthenticatedQuotationsIdEditRoute
   '/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRoutesByTo {
@@ -290,6 +298,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/tasks': typeof AuthenticatedTasksIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
+  '/quotations/$id/edit': typeof AuthenticatedQuotationsIdEditRoute
   '/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRoutesById {
@@ -326,6 +335,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+  '/_authenticated/quotations/$id/edit': typeof AuthenticatedQuotationsIdEditRoute
   '/_authenticated/quotations/$id/print': typeof AuthenticatedQuotationsIdPrintRoute
 }
 export interface FileRouteTypes {
@@ -362,6 +372,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/tasks/'
     | '/users/'
+    | '/quotations/$id/edit'
     | '/quotations/$id/print'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -395,6 +406,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/users'
+    | '/quotations/$id/edit'
     | '/quotations/$id/print'
   id:
     | '__root__'
@@ -430,6 +442,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/'
     | '/_authenticated/tasks/'
     | '/_authenticated/users/'
+    | '/_authenticated/quotations/$id/edit'
     | '/_authenticated/quotations/$id/print'
   fileRoutesById: FileRoutesById
 }
@@ -680,6 +693,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedQuotationsIdPrintRouteImport
       parentRoute: typeof AuthenticatedQuotationsIdRoute
     }
+    '/_authenticated/quotations/$id/edit': {
+      id: '/_authenticated/quotations/$id/edit'
+      path: '/edit'
+      fullPath: '/quotations/$id/edit'
+      preLoaderRoute: typeof AuthenticatedQuotationsIdEditRouteImport
+      parentRoute: typeof AuthenticatedQuotationsIdRoute
+    }
   }
 }
 
@@ -707,11 +727,13 @@ const AuthenticatedSettingsRouteRouteWithChildren =
   )
 
 interface AuthenticatedQuotationsIdRouteChildren {
+  AuthenticatedQuotationsIdEditRoute: typeof AuthenticatedQuotationsIdEditRoute
   AuthenticatedQuotationsIdPrintRoute: typeof AuthenticatedQuotationsIdPrintRoute
 }
 
 const AuthenticatedQuotationsIdRouteChildren: AuthenticatedQuotationsIdRouteChildren =
   {
+    AuthenticatedQuotationsIdEditRoute: AuthenticatedQuotationsIdEditRoute,
     AuthenticatedQuotationsIdPrintRoute: AuthenticatedQuotationsIdPrintRoute,
   }
 
