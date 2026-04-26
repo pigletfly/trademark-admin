@@ -1,11 +1,10 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, request as pwRequest } from '@playwright/test'
 import { LoginPage } from '../fixtures/pages/login.page'
 import { ListPage } from '../fixtures/pages/list.page'
 import { WizardPage } from '../fixtures/pages/wizard.page'
 import { DetailPage } from '../fixtures/pages/detail.page'
 import { patchState, readState } from '../fixtures/test-data'
 import { listCountries, login } from '../fixtures/api-client'
-import { request as pwRequest } from '@playwright/test'
 
 test.describe.configure({ mode: 'serial' })
 

@@ -22,6 +22,9 @@ export interface TestState {
   reviewer: { id: string; email: string; password: string }
   customerId: string
   countryId: string
+  // Recorded for human inspection only — the wizard resolves active pricing
+  // by (country_id, service_tier) server-side, so downstream specs don't
+  // read these ids.
   pricingEntryIds: { application: string; agent: string }
   quotationId?: string | null
 }
