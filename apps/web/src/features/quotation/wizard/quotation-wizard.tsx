@@ -1,6 +1,9 @@
 import { useMemo, type ReactNode } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import type { AxiosError } from 'axios'
+import { useNavigate } from '@tanstack/react-router'
+import { AlertCircle, Loader2, Save, Send } from 'lucide-react'
+import { useAuthStore } from '@/stores/auth-store'
+import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,17 +28,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { useCountries } from '@/features/catalog/hooks/use-countries'
 import { useNiceCategories } from '@/features/catalog/hooks/use-nice-categories'
 import { useCustomersList } from '@/features/customers/hooks'
-import { cn } from '@/lib/utils'
-import { AlertCircle, Loader2, Save, Send } from 'lucide-react'
-import { useAuthStore } from '@/stores/auth-store'
-import type { AgentLevel, QuoteInfoSection, RegistrationMethod } from '../types'
 import {
   useCreateAndSubmit,
   useCreateQuotation,
   useUpdateAndSubmit,
   useUpdateQuotationDraft,
 } from '../hooks/use-quotation-mutations'
+import type { AgentLevel, QuoteInfoSection, RegistrationMethod } from '../types'
 import { usePreview } from './hooks/use-preview'
+import { NiceClassMultiSelect } from './nice-class-multi-select'
 import {
   createWizardStore,
   serviceTierForAgentLevel,
@@ -200,40 +201,20 @@ export function QuotationWizard({ mode }: Props) {
                   </Select>
                 </div>
 
-                <MultiCheckSection
-                  title='商标类别 / Nice Classes'
-                  className='max-h-72 overflow-y-auto'
-                >
-                  {niceCategories.data?.length ? (
-                    niceCategories.data.map((category) => {
-                      const id = `nice-category-${category.code}`
-                      return (
-                        <CheckboxRow
-                          key={category.code}
-                          id={id}
-                          checked={draft.nice_category_codes.includes(
-                            category.code
-                          )}
-                          label={`第 ${category.code} 类 ${category.name_zh}`}
-                          description={category.name_en}
-                          onCheckedChange={(checked) =>
-                            state.patchDraft({
-                              nice_category_codes: toggleValue(
-                                draft.nice_category_codes,
-                                category.code,
-                                checked
-                              ),
-                            })
-                          }
-                        />
-                      )
-                    })
-                  ) : (
-                    <p className='text-sm text-muted-foreground'>
-                      暂无尼斯分类数据
-                    </p>
-                  )}
-                </MultiCheckSection>
+                <section className='grid gap-3'>
+                  <Label htmlFor='quotation-nice-classes'>
+                    商标类别 / Nice Classes
+                  </Label>
+                  <NiceClassMultiSelect
+                    id='quotation-nice-classes'
+                    categories={niceCategories.data ?? []}
+                    value={draft.nice_category_codes}
+                    loading={niceCategories.isLoading}
+                    onValueChange={(codes) =>
+                      state.patchDraft({ nice_category_codes: codes })
+                    }
+                  />
+                </section>
 
                 <MultiCheckSection title='国家 / Countries'>
                   {countries.data?.map((country) => {
@@ -492,7 +473,7 @@ function PreviewPanel({
               {formatCNY(preview.data.total_cny_cents)}
             </span>
           </div>
-          <p className='break-all text-xs text-muted-foreground'>
+          <p className='text-xs break-all text-muted-foreground'>
             签名：<code>{preview.data.signature.slice(0, 12)}…</code>
           </p>
         </div>
