@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { AxiosError } from 'axios'
+import type { AxiosError } from 'axios'
 import { api } from '@/lib/api'
 import type { ServiceTier } from '../../types'
 
 export interface PreviewRequest {
   customer_id: string
   country_id: string
+  country_ids?: string[]
   service_tier: ServiceTier
 }
 
@@ -29,9 +30,12 @@ export const PREVIEW_QUERY_KEY = ['quotations', 'preview'] as const
 export function usePreview(req: PreviewRequest) {
   const enabled = Boolean(req.customer_id && req.country_id && req.service_tier)
   return useQuery<PreviewResponse, AxiosError>({
-    queryKey: [...PREVIEW_QUERY_KEY, req.customer_id, req.country_id, req.service_tier],
+    queryKey: [...PREVIEW_QUERY_KEY, req],
     queryFn: async () => {
-      const { data } = await api.post<PreviewResponse>('/quotations/preview', req)
+      const { data } = await api.post<PreviewResponse>(
+        '/quotations/preview',
+        req
+      )
       return data
     },
     enabled,

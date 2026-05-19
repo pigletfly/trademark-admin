@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  vi,
+} from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import {
@@ -35,8 +43,13 @@ import type { Quotation } from '@/features/quotation/types'
 const ADMIN_ID = '00000000-0000-0000-0000-000000000001'
 const COUNTRY_CN_ID = '00000000-0000-0000-0000-000000000100'
 
-function buildRouter(role: 'admin' | 'salesperson' | 'reviewer', initialPath: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function buildRouter(
+  role: 'admin' | 'salesperson' | 'reviewer',
+  initialPath: string
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   const user = {
     id: ADMIN_ID,
     name: 'Bootstrap Admin',
@@ -80,7 +93,12 @@ function buildRouter(role: 'admin' | 'salesperson' | 'reviewer', initialPath: st
     component: EditQuotationPage,
   })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([listRoute, detailRoute, newRoute, editRoute]),
+    routeTree: rootRoute.addChildren([
+      listRoute,
+      detailRoute,
+      newRoute,
+      editRoute,
+    ]),
     history: createMemoryHistory({ initialEntries: [initialPath] }),
     context: { queryClient },
   })
@@ -105,9 +123,11 @@ describe('quotation integration', () => {
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
-    await expect.element(screen.getByRole('heading', { name: '报价列表' })).toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('heading', { name: '报价列表' }))
+      .toBeInTheDocument()
     await expect.element(screen.getByText(/暂无报价记录/)).toBeInTheDocument()
   })
 
@@ -127,11 +147,14 @@ describe('quotation integration', () => {
       service_tier: 'basic',
     })
 
-    const { router, queryClient } = buildRouter('admin', `/quotations/${quoteId}`)
+    const { router, queryClient } = buildRouter(
+      'admin',
+      `/quotations/${quoteId}`
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     // Draft view: status badge is "草稿", snapshot hint is shown.
@@ -145,7 +168,9 @@ describe('quotation integration', () => {
     // table shows the seeded ¥500.00 as a total cell.
     await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
     await expect.element(screen.getByText('application')).toBeInTheDocument()
-    await expect.element(screen.getByText('¥500.00').first()).toBeInTheDocument()
+    await expect
+      .element(screen.getByText('¥500.00').first())
+      .toBeInTheDocument()
 
     // Approve — opens dialog, confirm without comment.
     await userEvent.click(screen.getByRole('button', { name: '通过' }))
@@ -156,8 +181,12 @@ describe('quotation integration', () => {
     await expect.element(screen.getByText('已通过').first()).toBeInTheDocument()
 
     // Once approved, the export actions become visible.
-    await expect.element(screen.getByRole('button', { name: /导出 PDF/ })).toBeInTheDocument()
-    await expect.element(screen.getByRole('button', { name: /导出 Word/ })).toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('button', { name: /导出 PDF/ }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('button', { name: /导出 Word/ }))
+      .toBeInTheDocument()
   })
 })
 
@@ -181,11 +210,14 @@ describe('withdraw + copy + adjust', () => {
       country_id: COUNTRY_CN_ID,
     })
 
-    const { router, queryClient } = buildRouter('salesperson', `/quotations/${quoteId}`)
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      `/quotations/${quoteId}`
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     // Initial submitted badge.
@@ -195,7 +227,9 @@ describe('withdraw + copy + adjust', () => {
     await userEvent.click(screen.getByRole('button', { name: '撤回草稿' }))
 
     await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
-    await expect.element(screen.getByText('报价已撤回为草稿')).toBeInTheDocument()
+    await expect
+      .element(screen.getByText('报价已撤回为草稿'))
+      .toBeInTheDocument()
   })
 
   it('reviewer adjusts a submitted snapshot and sees diff in history', async () => {
@@ -206,11 +240,14 @@ describe('withdraw + copy + adjust', () => {
       total_cny_cents: 10000,
     })
 
-    const { router, queryClient } = buildRouter('reviewer', `/quotations/${quoteId}`)
+    const { router, queryClient } = buildRouter(
+      'reviewer',
+      `/quotations/${quoteId}`
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     // Make sure the submitted snapshot rendered before interacting.
@@ -229,7 +266,9 @@ describe('withdraw + copy + adjust', () => {
 
     // Confirmation toast + new diff row in the history timeline.
     await expect.element(screen.getByText('调价已保存')).toBeInTheDocument()
-    await expect.element(screen.getByText(/¥100\.00 → ¥150\.00/)).toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/¥100\.00 → ¥150\.00/))
+      .toBeInTheDocument()
   })
 
   it('copy lands on detail page of the new draft', async () => {
@@ -239,11 +278,14 @@ describe('withdraw + copy + adjust', () => {
       country_id: COUNTRY_CN_ID,
     })
 
-    const { router, queryClient } = buildRouter('admin', `/quotations/${quoteId}`)
+    const { router, queryClient } = buildRouter(
+      'admin',
+      `/quotations/${quoteId}`
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     // Source record shows 已提交 first.
@@ -254,7 +296,9 @@ describe('withdraw + copy + adjust', () => {
 
     // Router should navigate to the new draft; detail page shows 草稿 badge.
     await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
-    await expect.element(screen.getByText('报价已复制为新草稿')).toBeInTheDocument()
+    await expect
+      .element(screen.getByText('报价已复制为新草稿'))
+      .toBeInTheDocument()
   })
 })
 
@@ -279,22 +323,25 @@ describe('QuotationExportActions', () => {
     let capturedBody: unknown = null
 
     worker.use(
-      http.post(`/api/v1/quotations/${QUOTATION_ID}/export`, async ({ request }) => {
-        capturedBody = await request.json()
-        const now = new Date().toISOString()
-        const dto = {
-          id: 'exp-1',
-          quotation_id: QUOTATION_ID,
-          format: 'pdf',
-          language: 'bilingual',
-          sha256: 'abc123',
-          file_size: 1024,
-          expires_at: now,
-          created_at: now,
-          download_url: DOWNLOAD_URL,
+      http.post(
+        `/api/v1/quotations/${QUOTATION_ID}/export`,
+        async ({ request }) => {
+          capturedBody = await request.json()
+          const now = new Date().toISOString()
+          const dto = {
+            id: 'exp-1',
+            quotation_id: QUOTATION_ID,
+            format: 'pdf',
+            language: 'bilingual',
+            sha256: 'abc123',
+            file_size: 1024,
+            expires_at: now,
+            created_at: now,
+            download_url: DOWNLOAD_URL,
+          }
+          return HttpResponse.json(dto, { status: 201 })
         }
-        return HttpResponse.json(dto, { status: 201 })
-      }),
+      )
     )
 
     // Spy on window.open before rendering.
@@ -311,13 +358,15 @@ describe('QuotationExportActions', () => {
       updated_at: new Date().toISOString(),
     }
 
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
 
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <QuotationExportActions quotation={approvedQuotation} />
         <Toaster />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     // Click the PDF dropdown trigger button.
@@ -336,7 +385,7 @@ describe('QuotationExportActions', () => {
   })
 })
 
-describe('quotation wizard M3', () => {
+describe('quotation form', () => {
   beforeAll(async () => {
     await worker.start({ onUnhandledRequest: 'bypass' })
   })
@@ -362,83 +411,96 @@ describe('quotation wizard M3', () => {
     return { custId }
   }
 
-  it('new → 5 steps → save draft → list shows new row', async () => {
+  async function fillRequiredQuotationForm(
+    screen: Awaited<ReturnType<typeof render>>
+  ) {
+    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
+    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /第 9 类/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /中国/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /马德里/ }))
+  }
+
+  it('new form → save draft → detail keeps extended fields', async () => {
     await seedWizardPrereqs()
-    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
-    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
-    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-
-    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
-    await userEvent.click(screen.getByRole('option').first())
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await fillRequiredQuotationForm(screen)
 
     await expect.element(screen.getByText(/application/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
     await expect.element(screen.getByText('草稿').first()).toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/第 9 类 科学仪器/))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/马德里、单一分类/))
+      .toBeInTheDocument()
+    await expect.element(screen.getByText(/A 代理/)).toBeInTheDocument()
   })
 
-  it('new → 5 steps → save and submit → status becomes submitted', async () => {
+  it('new form → save and submit → status becomes submitted', async () => {
     await seedWizardPrereqs()
-    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
-    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
-    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
-    await userEvent.click(screen.getByRole('option').first())
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await fillRequiredQuotationForm(screen)
 
     await expect.element(screen.getByText(/application/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '保存并提交' }))
     await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
   })
 
-  it('edit → change tier → save and submit → status=submitted', async () => {
+  it('edit → change agent level → save and submit → status=submitted', async () => {
     const { custId } = await seedWizardPrereqs()
     const draftId = seedQuotationDraft({
       customer_id: custId,
       country_id: COUNTRY_CN_ID,
       service_tier: 'basic',
     })
-    // Add pricing for premium tier so the post-edit preview finds
+    // Add pricing for B-agent tier so the post-edit preview finds
     // matching pricing entries and submit doesn't fail.
     seedPricingEntry({
       country_id: COUNTRY_CN_ID,
-      service_tier: 'premium',
+      service_tier: 'standard',
       fee_item: 'application',
       amount_cny_cents: 80000,
     })
 
-    const { router, queryClient } = buildRouter('salesperson', `/quotations/${draftId}/edit`)
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      `/quotations/${draftId}/edit`
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('radio', { name: /尊享/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await expect
+      .element(screen.getByRole('checkbox', { name: /中国/ }))
+      .toBeChecked()
+    await userEvent.click(screen.getByRole('checkbox', { name: /第 9 类/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /B 代理/ }))
+    await expect
+      .element(screen.getByRole('radio', { name: /B 代理/ }))
+      .toBeChecked()
     await expect.element(screen.getByText(/application/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '保存并提交' }))
     await expect.element(screen.getByText('已提交').first()).toBeInTheDocument()
@@ -454,49 +516,56 @@ describe('quotation wizard M3', () => {
           editingId: null,
           draft: {
             customer_id: 'stale-customer',
-            country_id: COUNTRY_CN_ID,
-            service_tier: 'standard',
+            country_ids: [COUNTRY_CN_ID],
+            nice_category_codes: [9],
+            registration_methods: ['single'],
+            agent_level: 'agent_b',
+            info_sections: [],
             notes: 'stale notes',
           },
         },
         version: 0,
-      }),
+      })
     )
 
     const { router, queryClient } = buildRouter('admin', '/quotations/new')
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
     await expect.element(screen.getByText(/未完成的草稿/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /放弃/ }))
-    await expect.element(screen.getByText(/未完成的草稿/)).not.toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/未完成的草稿/))
+      .not.toBeInTheDocument()
   })
 
   it('preview error: ERR_MISSING_PRICING → retry button + both saves disabled', async () => {
     seedCustomer({ name: 'Acme 国际' })
 
-    const { router, queryClient } = buildRouter('salesperson', '/quotations/new')
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
     const screen = await render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     )
 
-    await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
-    await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('combobox', { name: /国家/ }))
-    await userEvent.click(screen.getByRole('option').first())
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
-    await userEvent.click(screen.getByRole('button', { name: /下一步/ }))
+    await fillRequiredQuotationForm(screen)
 
-    await expect.element(screen.getByText(/该国家\/级别暂无定价/)).toBeInTheDocument()
-    await expect.element(screen.getByRole('button', { name: '保存草稿' })).toBeDisabled()
-    await expect.element(screen.getByRole('button', { name: '保存并提交' })).toBeDisabled()
-    await expect.element(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
+    await expect.element(screen.getByText(/暂无定价/)).toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('button', { name: '保存草稿' }))
+      .toBeDisabled()
+    await expect
+      .element(screen.getByRole('button', { name: '保存并提交' }))
+      .toBeDisabled()
+    await expect
+      .element(screen.getByRole('button', { name: /重试/ }))
+      .toBeInTheDocument()
   })
 })

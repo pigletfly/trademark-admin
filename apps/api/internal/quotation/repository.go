@@ -20,6 +20,9 @@ func (r *Repository) Create(ctx context.Context, q *Quotation) error {
 	if q.ID == uuid.Nil {
 		q.ID = uuid.New()
 	}
+	if err := applyQuotationFormDefaults(q); err != nil {
+		return err
+	}
 	return r.db.WithContext(ctx).Create(q).Error
 }
 

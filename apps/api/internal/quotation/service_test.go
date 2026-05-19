@@ -3,6 +3,7 @@ package quotation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -117,7 +118,9 @@ func (f *fakeRepo) SoftDelete(ctx context.Context, id uuid.UUID) error {
 
 // fakeCustomerRepo lets service tests control whether "customer exists"
 // without touching Postgres. A nil entry for an id means "not found".
-type fakeCustomerRepo struct{ byID map[uuid.UUID]*customer.Customer }
+type fakeCustomerRepo struct {
+	byID map[uuid.UUID]*customer.Customer
+}
 
 func newFakeCustomerRepo() *fakeCustomerRepo {
 	return &fakeCustomerRepo{byID: map[uuid.UUID]*customer.Customer{}}
@@ -164,6 +167,38 @@ func TestCreate_InvalidTier(t *testing.T) {
 	if !errors.Is(err, ErrInvalidTier) {
 		t.Fatalf("want ErrInvalidTier, got %v", err)
 	}
+}
+
+func TestCreate_PersistsExtendedFormFields(t *testing.T) {
+	countryA := uuid.New()
+	countryB := uuid.New()
+	owner := uuid.New()
+	svc, _ := newService(nil)
+
+	q, err := svc.Create(context.Background(), owner, CreateRequest{
+		CustomerID:          uuid.New(),
+		CountryID:           countryA,
+		CountryIDs:          []uuid.UUID{countryA, countryB},
+		NiceCategoryCodes:   []int{9, 35},
+		RegistrationMethods: []string{"madrid", "single"},
+		AgentLevel:          "agent_b",
+		ServiceTier:         "standard",
+		InfoSections:        []string{"acceptance_time", "real_cases"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if q.CountryID != countryA {
+		t.Fatalf("primary country = %s, want %s", q.CountryID, countryA)
+	}
+	assertUUIDJSONB(t, q.CountryIDs, []uuid.UUID{countryA, countryB})
+	assertIntJSONB(t, q.NiceCategoryCodes, []int{9, 35})
+	assertStringJSONB(t, q.RegistrationMethods, []string{"madrid", "single"})
+	if q.AgentLevel != "agent_b" {
+		t.Fatalf("agent level = %q, want agent_b", q.AgentLevel)
+	}
+	assertStringJSONB(t, q.InfoSections, []string{"acceptance_time", "real_cases"})
 }
 
 func TestSubmit_SnapshotsPricing(t *testing.T) {
@@ -285,6 +320,54 @@ func TestSubmitThenApprove_HistoryRows(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func assertUUIDJSONB(t *testing.T, raw []byte, want []uuid.UUID) {
+	t.Helper()
+	var got []uuid.UUID
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal uuid jsonb: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("uuid jsonb length = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("uuid jsonb[%d] = %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
+func assertIntJSONB(t *testing.T, raw []byte, want []int) {
+	t.Helper()
+	var got []int
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal int jsonb: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("int jsonb length = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("int jsonb[%d] = %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
+func assertStringJSONB(t *testing.T, raw []byte, want []string) {
+	t.Helper()
+	var got []string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal string jsonb: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("string jsonb length = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("string jsonb[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
 
 // TestService_Withdraw_ErrorPaths exercises the three non-happy branches
 // of Service.Withdraw: not-found, wrong-owner, wrong-status. The repo
@@ -468,6 +551,38 @@ func TestService_Preview_Success(t *testing.T) {
 	}
 	if resp.TotalCNYCents != 50000 {
 		t.Fatalf("total = %d, want 50000", resp.TotalCNYCents)
+	}
+	if len(resp.Signature) != 64 {
+		t.Fatalf("signature len = %d, want 64", len(resp.Signature))
+	}
+}
+
+func TestService_Preview_MultiCountryAggregates(t *testing.T) {
+	custID := uuid.New()
+	countryA := uuid.New()
+	countryB := uuid.New()
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	pricingRepo := &fakePricingRepo{entries: []pricing.PricingEntry{
+		{ID: uuid.New(), CountryID: countryA, ServiceTier: "basic", FeeItem: "application", AmountCNYCents: 50000},
+		{ID: uuid.New(), CountryID: countryB, ServiceTier: "basic", FeeItem: "application", AmountCNYCents: 70000},
+	}}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:  custID,
+		CountryID:   countryA,
+		CountryIDs:  []uuid.UUID{countryA, countryB},
+		ServiceTier: "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if len(resp.Lines) != 2 {
+		t.Fatalf("lines = %d, want 2", len(resp.Lines))
+	}
+	if resp.TotalCNYCents != 120000 {
+		t.Fatalf("total = %d, want 120000", resp.TotalCNYCents)
 	}
 	if len(resp.Signature) != 64 {
 		t.Fatalf("signature len = %d, want 64", len(resp.Signature))

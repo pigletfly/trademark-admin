@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
@@ -7,14 +7,21 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
-import { useQuotation, quotationDetailQueryOptions } from '@/features/quotation/hooks'
-import { getWizardStore, QuotationWizard } from '@/features/quotation/wizard/quotation-wizard'
+import {
+  useQuotation,
+  quotationDetailQueryOptions,
+} from '@/features/quotation/hooks'
+import {
+  getWizardStore,
+  QuotationWizard,
+} from '@/features/quotation/wizard/quotation-wizard'
 
 export function EditQuotationPage() {
   const { id } = Route.useParams()
   const navigate = useNavigate()
   const userId = useAuthStore((s) => s.auth.user?.id) ?? ''
   const store = getWizardStore(userId)
+  const editingId = store((s) => s.editingId)
 
   const { data: quotation } = useQuotation(id)
 
@@ -28,7 +35,7 @@ export function EditQuotationPage() {
   //   React Query refetches `quotation` (window focus, invalidation,
   //   staleTime expiry) — loadForEdit unconditionally resets
   //   currentStep to 0 and overwrites the draft.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       quotation &&
       quotation.status === 'draft' &&
@@ -68,8 +75,12 @@ export function EditQuotationPage() {
         <ProfileDropdown />
       </Header>
       <Main className='flex flex-col gap-4'>
-        <h2 className='text-2xl font-bold'>编辑报价 — {quotation?.serial_no ?? id.slice(0, 8)}</h2>
-        {quotation && quotation.status === 'draft' && <QuotationWizard mode='edit' />}
+        <h2 className='text-2xl font-bold'>
+          编辑报价 — {quotation?.serial_no ?? id.slice(0, 8)}
+        </h2>
+        {quotation && quotation.status === 'draft' && editingId === id && (
+          <QuotationWizard mode='edit' />
+        )}
       </Main>
     </>
   )

@@ -24,24 +24,29 @@ const (
 
 // Quotation mirrors the quotations table.
 type Quotation struct {
-	ID              uuid.UUID  `gorm:"type:uuid;primaryKey"`
-	CustomerID      uuid.UUID  `gorm:"type:uuid;not null;index"`
-	CountryID       uuid.UUID  `gorm:"type:uuid;not null"`
-	ServiceTier     string     `gorm:"not null"`
-	Status          Status     `gorm:"not null;default:draft"`
-	SnapshotJSON    audit.JSONB `gorm:"type:jsonb"`
-	TotalCNYCents   *int64
-	Signature       *string
-	SerialNo        *string `gorm:"column:serial_no"`
-	SubmittedAt     *time.Time
-	ReviewedAt      *time.Time
-	ReviewedBy      *uuid.UUID `gorm:"type:uuid"`
-	ReviewComment   *string
-	Notes           *string
-	CreatedBy       uuid.UUID `gorm:"type:uuid;not null"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       gorm.DeletedAt `gorm:"index"`
+	ID                  uuid.UUID   `gorm:"type:uuid;primaryKey"`
+	CustomerID          uuid.UUID   `gorm:"type:uuid;not null;index"`
+	CountryID           uuid.UUID   `gorm:"type:uuid;not null"`
+	CountryIDs          audit.JSONB `gorm:"column:country_ids;type:jsonb"`
+	NiceCategoryCodes   audit.JSONB `gorm:"column:nice_category_codes;type:jsonb"`
+	RegistrationMethods audit.JSONB `gorm:"column:registration_methods;type:jsonb"`
+	AgentLevel          string      `gorm:"not null;default:agent_a"`
+	InfoSections        audit.JSONB `gorm:"column:info_sections;type:jsonb"`
+	ServiceTier         string      `gorm:"not null"`
+	Status              Status      `gorm:"not null;default:draft"`
+	SnapshotJSON        audit.JSONB `gorm:"type:jsonb"`
+	TotalCNYCents       *int64
+	Signature           *string
+	SerialNo            *string `gorm:"column:serial_no"`
+	SubmittedAt         *time.Time
+	ReviewedAt          *time.Time
+	ReviewedBy          *uuid.UUID `gorm:"type:uuid"`
+	ReviewComment       *string
+	Notes               *string
+	CreatedBy           uuid.UUID `gorm:"type:uuid;not null"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           gorm.DeletedAt `gorm:"index"`
 }
 
 func (Quotation) TableName() string { return "quotations" }

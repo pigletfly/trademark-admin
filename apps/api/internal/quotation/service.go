@@ -22,6 +22,7 @@ var (
 	ErrNotFound          = errors.New("quotation: not found")
 	ErrMissingPricing    = errors.New("quotation: no active pricing entries for country+tier")
 	ErrEmptyAdjust       = errors.New("quotation: adjust requires at least one line")
+	ErrInvalidFormInput  = errors.New("quotation: invalid extended form input")
 )
 
 // repo is the subset of Repository methods Service depends on. Keeps the
@@ -83,14 +84,55 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, req CreateReque
 	if !pricing.IsValidServiceTier(req.ServiceTier) {
 		return nil, ErrInvalidTier
 	}
+	countryIDs, err := normalizeCountryIDs(req.CountryID, req.CountryIDs)
+	if err != nil {
+		return nil, err
+	}
+	niceCodes, err := normalizeNiceCategoryCodes(req.NiceCategoryCodes)
+	if err != nil {
+		return nil, err
+	}
+	registrationMethods, err := normalizeRegistrationMethods(req.RegistrationMethods)
+	if err != nil {
+		return nil, err
+	}
+	agentLevel, err := normalizeAgentLevel(req.AgentLevel)
+	if err != nil {
+		return nil, err
+	}
+	infoSections, err := normalizeInfoSections(req.InfoSections)
+	if err != nil {
+		return nil, err
+	}
+	countryIDsJSON, err := encodeJSONB(countryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal country ids: %w", err)
+	}
+	niceCodesJSON, err := encodeJSONB(niceCodes)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal nice category codes: %w", err)
+	}
+	registrationMethodsJSON, err := encodeJSONB(registrationMethods)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal registration methods: %w", err)
+	}
+	infoSectionsJSON, err := encodeJSONB(infoSections)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal info sections: %w", err)
+	}
 	q := &Quotation{
-		ID:          uuid.New(),
-		CustomerID:  req.CustomerID,
-		CountryID:   req.CountryID,
-		ServiceTier: req.ServiceTier,
-		Status:      StatusDraft,
-		Notes:       req.Notes,
-		CreatedBy:   ownerID,
+		ID:                  uuid.New(),
+		CustomerID:          req.CustomerID,
+		CountryID:           countryIDs[0],
+		CountryIDs:          countryIDsJSON,
+		NiceCategoryCodes:   niceCodesJSON,
+		RegistrationMethods: registrationMethodsJSON,
+		AgentLevel:          agentLevel,
+		ServiceTier:         req.ServiceTier,
+		Status:              StatusDraft,
+		InfoSections:        infoSectionsJSON,
+		Notes:               req.Notes,
+		CreatedBy:           ownerID,
 	}
 	if err := s.repo.Create(ctx, q); err != nil {
 		return nil, err
@@ -120,12 +162,69 @@ func (s *Service) UpdateDraft(ctx context.Context, id, actorID uuid.UUID, req Up
 	}
 	if req.CountryID != nil {
 		patch["country_id"] = *req.CountryID
+		countryIDsJSON, err := encodeJSONB([]uuid.UUID{*req.CountryID})
+		if err != nil {
+			return fmt.Errorf("quotation: marshal country ids: %w", err)
+		}
+		patch["country_ids"] = countryIDsJSON
+	}
+	if req.CountryIDs != nil {
+		countryIDs, err := normalizeCountryIDs(uuid.Nil, *req.CountryIDs)
+		if err != nil {
+			return err
+		}
+		countryIDsJSON, err := encodeJSONB(countryIDs)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal country ids: %w", err)
+		}
+		patch["country_id"] = countryIDs[0]
+		patch["country_ids"] = countryIDsJSON
 	}
 	if req.ServiceTier != nil {
 		if !pricing.IsValidServiceTier(*req.ServiceTier) {
 			return ErrInvalidTier
 		}
 		patch["service_tier"] = *req.ServiceTier
+	}
+	if req.NiceCategoryCodes != nil {
+		codes, err := normalizeNiceCategoryCodes(*req.NiceCategoryCodes)
+		if err != nil {
+			return err
+		}
+		raw, err := encodeJSONB(codes)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal nice category codes: %w", err)
+		}
+		patch["nice_category_codes"] = raw
+	}
+	if req.RegistrationMethods != nil {
+		methods, err := normalizeRegistrationMethods(*req.RegistrationMethods)
+		if err != nil {
+			return err
+		}
+		raw, err := encodeJSONB(methods)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal registration methods: %w", err)
+		}
+		patch["registration_methods"] = raw
+	}
+	if req.AgentLevel != nil {
+		agentLevel, err := normalizeAgentLevel(*req.AgentLevel)
+		if err != nil {
+			return err
+		}
+		patch["agent_level"] = agentLevel
+	}
+	if req.InfoSections != nil {
+		sections, err := normalizeInfoSections(*req.InfoSections)
+		if err != nil {
+			return err
+		}
+		raw, err := encodeJSONB(sections)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal info sections: %w", err)
+		}
+		patch["info_sections"] = raw
 	}
 	if req.Notes != nil {
 		patch["notes"] = *req.Notes
@@ -155,34 +254,12 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 		return nil, ErrInvalidTransition
 	}
 
-	// Fetch active pricing then compute deterministic snapshot.
-	entries, err := s.pricingRepo.ListActive(ctx, &q.CountryID)
-	if err != nil {
-		return nil, err
-	}
-	calc, err := pricing.Calculate(entries, pricing.CalcInput{
-		CountryID:   q.CountryID,
-		ServiceTier: q.ServiceTier,
-	})
+	snap, err := s.calculateSnapshot(ctx, quotationCountryIDs(q), q.ServiceTier)
 	if err != nil {
 		if errors.Is(err, pricing.ErrNoMatchingEntries) {
 			return nil, ErrMissingPricing
 		}
-		return nil, fmt.Errorf("quotation: pricing calculate: %w", err)
-	}
-
-	snap := Snapshot{
-		Lines:         make([]SnapshotLine, 0, len(calc.Lines)),
-		TotalCNYCents: calc.TotalCNYCents,
-		Signature:     calc.Signature,
-	}
-	for _, l := range calc.Lines {
-		sourceID := l.SourcePricingEntryID
-		snap.Lines = append(snap.Lines, SnapshotLine{
-			FeeItem:              l.FeeItem,
-			AmountCNYCents:       l.AmountCNYCents,
-			SourcePricingEntryID: &sourceID,
-		})
+		return nil, err
 	}
 	raw, err := json.Marshal(snap)
 	if err != nil {
@@ -190,8 +267,8 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 	}
 	now := time.Now()
 	q.SnapshotJSON = audit.JSONB(raw)
-	q.TotalCNYCents = &calc.TotalCNYCents
-	sig := calc.Signature
+	q.TotalCNYCents = &snap.TotalCNYCents
+	sig := snap.Signature
 	q.Signature = &sig
 	q.SubmittedAt = &now
 
@@ -200,6 +277,45 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 	}
 	q.Status = StatusSubmitted
 	return q, nil
+}
+
+func (s *Service) calculateSnapshot(ctx context.Context, countryIDs []uuid.UUID, serviceTier string) (Snapshot, error) {
+	var snap Snapshot
+	if len(countryIDs) == 0 {
+		return snap, ErrInvalidFormInput
+	}
+	for _, countryID := range countryIDs {
+		entries, err := s.pricingRepo.ListActive(ctx, &countryID)
+		if err != nil {
+			return snap, err
+		}
+		calc, err := pricing.Calculate(entries, pricing.CalcInput{
+			CountryID:   countryID,
+			ServiceTier: serviceTier,
+		})
+		if err != nil {
+			if errors.Is(err, pricing.ErrNoMatchingEntries) {
+				return snap, ErrMissingPricing
+			}
+			return snap, fmt.Errorf("quotation: pricing calculate: %w", err)
+		}
+		for _, l := range calc.Lines {
+			sourceID := l.SourcePricingEntryID
+			snap.Lines = append(snap.Lines, SnapshotLine{
+				FeeItem:              l.FeeItem,
+				AmountCNYCents:       l.AmountCNYCents,
+				SourcePricingEntryID: &sourceID,
+			})
+		}
+		snap.TotalCNYCents += calc.TotalCNYCents
+		if len(countryIDs) == 1 {
+			snap.Signature = calc.Signature
+		}
+	}
+	if len(countryIDs) > 1 {
+		snap.Signature = computeQuotationSignature(countryIDs, serviceTier, snap.Lines, snap.TotalCNYCents)
+	}
+	return snap, nil
 }
 
 // Approve / Reject are reviewer transitions. They do NOT recompute the
@@ -275,12 +391,17 @@ func (s *Service) Copy(ctx context.Context, sourceID, actorID uuid.UUID) (*Quota
 		return nil, ErrNotFound
 	}
 	q := &Quotation{
-		CustomerID:  src.CustomerID,
-		CountryID:   src.CountryID,
-		ServiceTier: src.ServiceTier,
-		Status:      StatusDraft,
-		Notes:       src.Notes,
-		CreatedBy:   actorID,
+		CustomerID:          src.CustomerID,
+		CountryID:           src.CountryID,
+		CountryIDs:          src.CountryIDs,
+		NiceCategoryCodes:   src.NiceCategoryCodes,
+		RegistrationMethods: src.RegistrationMethods,
+		AgentLevel:          src.AgentLevel,
+		ServiceTier:         src.ServiceTier,
+		Status:              StatusDraft,
+		InfoSections:        src.InfoSections,
+		Notes:               src.Notes,
+		CreatedBy:           actorID,
 	}
 	if err := s.repo.Create(ctx, q); err != nil {
 		return nil, err
@@ -406,6 +527,10 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 	if !pricing.IsValidServiceTier(req.ServiceTier) {
 		return nil, ErrInvalidTier
 	}
+	countryIDs, err := normalizeCountryIDs(req.CountryID, req.CountryIDs)
+	if err != nil {
+		return nil, err
+	}
 	cust, err := s.customerRepo.Get(ctx, req.CustomerID, nil)
 	if err != nil {
 		if errors.Is(err, customer.ErrNotFound) {
@@ -417,34 +542,18 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 		return nil, ErrNotFound
 	}
 
-	entries, err := s.pricingRepo.ListActive(ctx, &req.CountryID)
+	snap, err := s.calculateSnapshot(ctx, countryIDs, req.ServiceTier)
 	if err != nil {
-		return nil, fmt.Errorf("quotation: list pricing: %w", err)
-	}
-	calc, err := pricing.Calculate(entries, pricing.CalcInput{
-		CountryID:   req.CountryID,
-		ServiceTier: req.ServiceTier,
-	})
-	if err != nil {
-		if errors.Is(err, pricing.ErrNoMatchingEntries) {
+		if errors.Is(err, ErrMissingPricing) {
 			return nil, ErrMissingPricing
 		}
-		return nil, fmt.Errorf("quotation: pricing calculate: %w", err)
+		return nil, err
 	}
 
-	lines := make([]SnapshotLine, 0, len(calc.Lines))
-	for _, l := range calc.Lines {
-		sourceID := l.SourcePricingEntryID
-		lines = append(lines, SnapshotLine{
-			FeeItem:              l.FeeItem,
-			AmountCNYCents:       l.AmountCNYCents,
-			SourcePricingEntryID: &sourceID,
-		})
-	}
 	return &PreviewResponse{
-		Lines:         lines,
-		TotalCNYCents: calc.TotalCNYCents,
-		Signature:     calc.Signature,
+		Lines:         snap.Lines,
+		TotalCNYCents: snap.TotalCNYCents,
+		Signature:     snap.Signature,
 	}, nil
 }
 
@@ -459,13 +568,24 @@ func (s *Service) History(ctx context.Context, id uuid.UUID) ([]StatusHistory, e
 func ToResponse(q *Quotation) Response {
 	out := Response{
 		ID: q.ID, CustomerID: q.CustomerID, CountryID: q.CountryID,
-		ServiceTier: q.ServiceTier, Status: q.Status,
+		CountryIDs:          decodeJSONB[uuid.UUID](q.CountryIDs),
+		NiceCategoryCodes:   decodeJSONB[int](q.NiceCategoryCodes),
+		RegistrationMethods: decodeJSONB[string](q.RegistrationMethods),
+		AgentLevel:          q.AgentLevel,
+		ServiceTier:         q.ServiceTier, Status: q.Status,
 		TotalCNYCents: q.TotalCNYCents, Signature: q.Signature,
-		SerialNo: q.SerialNo,
+		SerialNo:    q.SerialNo,
 		SubmittedAt: q.SubmittedAt, ReviewedAt: q.ReviewedAt,
 		ReviewedBy: q.ReviewedBy, ReviewComment: q.ReviewComment,
-		Notes: q.Notes, CreatedBy: q.CreatedBy,
+		InfoSections: decodeJSONB[string](q.InfoSections),
+		Notes:        q.Notes, CreatedBy: q.CreatedBy,
 		CreatedAt: q.CreatedAt, UpdatedAt: q.UpdatedAt,
+	}
+	if len(out.CountryIDs) == 0 && q.CountryID != uuid.Nil {
+		out.CountryIDs = []uuid.UUID{q.CountryID}
+	}
+	if out.AgentLevel == "" {
+		out.AgentLevel = agentLevelFromServiceTier(q.ServiceTier)
 	}
 	if len(q.SnapshotJSON) > 0 {
 		var snap Snapshot

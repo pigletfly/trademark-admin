@@ -78,9 +78,14 @@ func TestHandler_HappyPath_SubmitThenApprove(t *testing.T) {
 
 	// Salesperson creates draft.
 	body, _ := json.Marshal(map[string]any{
-		"customer_id":  custID,
-		"country_id":   countryID,
-		"service_tier": "basic",
+		"customer_id":          custID,
+		"country_id":           countryID,
+		"country_ids":          []uuid.UUID{countryID},
+		"nice_category_codes":  []int{9, 35},
+		"registration_methods": []string{"madrid", "single"},
+		"agent_level":          "agent_a",
+		"service_tier":         "basic",
+		"info_sections":        []string{"acceptance_time", "real_cases"},
 	})
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", "/api/v1/quotations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -93,6 +98,15 @@ func TestHandler_HappyPath_SubmitThenApprove(t *testing.T) {
 	}
 	var created quotation.Response
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	if len(created.CountryIDs) != 1 || created.CountryIDs[0] != countryID {
+		t.Fatalf("country_ids = %+v, want [%s]", created.CountryIDs, countryID)
+	}
+	if len(created.NiceCategoryCodes) != 2 || created.NiceCategoryCodes[0] != 9 || created.NiceCategoryCodes[1] != 35 {
+		t.Fatalf("nice_category_codes = %+v, want [9 35]", created.NiceCategoryCodes)
+	}
+	if created.AgentLevel != "agent_a" {
+		t.Fatalf("agent_level = %q, want agent_a", created.AgentLevel)
+	}
 
 	// Salesperson submits.
 	req, _ = http.NewRequestWithContext(context.Background(), "POST",

@@ -288,6 +288,8 @@ func (h *Handler) writeServiceErr(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"code": "ERR_INVALID_TRANSITION", "message": "invalid status transition"})
 	case errors.Is(err, ErrInvalidTier):
 		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_TIER", "message": "invalid service tier"})
+	case errors.Is(err, ErrInvalidFormInput):
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_FORM_INPUT", "message": "invalid quotation form input"})
 	case errors.Is(err, ErrMissingPricing):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"code": "ERR_MISSING_PRICING", "message": "no active pricing for country+tier"})
 	case errors.Is(err, ErrEmptyAdjust):

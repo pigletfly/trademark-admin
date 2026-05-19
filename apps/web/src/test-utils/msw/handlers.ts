@@ -48,6 +48,10 @@ let quotations: Array<{
   id: string
   customer_id: string
   country_id: string
+  country_ids: string[]
+  nice_category_codes: number[]
+  registration_methods: Array<'madrid' | 'single'>
+  agent_level: 'agent_a' | 'agent_b'
   service_tier: 'basic' | 'standard' | 'premium'
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled'
   snapshot: null | {
@@ -62,6 +66,13 @@ let quotations: Array<{
   reviewed_at: string | null
   reviewed_by: string | null
   review_comment: string | null
+  info_sections: Array<
+    | 'acceptance_time'
+    | 'registration_time'
+    | 'required_documents'
+    | 'registration_method_intro'
+    | 'real_cases'
+  >
   notes: string | null
   created_by: string
   created_at: string
@@ -92,7 +103,7 @@ let quotationHistory: Record<
 function randomUUID() {
   // minimal RFC-4122 v4; browser polyfills have crypto.randomUUID too.
   const s = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0
+    const r = (Math.random() * 16) | 0
     const v = c === 'x' ? r : (r & 0x3) | 0x8
     return v.toString(16)
   })
@@ -102,26 +113,32 @@ function randomUUID() {
 export const defaultHandlers = [
   http.post('/api/v1/auth/login', async ({ request }) => {
     const body = (await request.json()) as { email: string; password: string }
-    if (body.email === 'admin@example.com' && body.password === 'change-me-on-first-login') {
+    if (
+      body.email === 'admin@example.com' &&
+      body.password === 'change-me-on-first-login'
+    ) {
       loggedIn = true
       return HttpResponse.json({ user: adminUser }, { status: 200 })
     }
     return HttpResponse.json(
-      { code: 'ERR_INVALID_CREDENTIALS', message: 'email or password incorrect' },
-      { status: 401 },
+      {
+        code: 'ERR_INVALID_CREDENTIALS',
+        message: 'email or password incorrect',
+      },
+      { status: 401 }
     )
   }),
   http.get('/api/v1/auth/me', () => {
     if (loggedIn) return HttpResponse.json({ user: adminUser })
     return HttpResponse.json(
       { code: 'ERR_UNAUTHORIZED', message: 'authentication required' },
-      { status: 401 },
+      { status: 401 }
     )
   }),
   http.post('/api/v1/auth/refresh', () => {
     return HttpResponse.json(
       { code: 'ERR_UNAUTHORIZED', message: 'no refresh token' },
-      { status: 401 },
+      { status: 401 }
     )
   }),
   http.post('/api/v1/auth/logout', () => {
@@ -163,10 +180,16 @@ export const defaultHandlers = [
       notes: string | null
     }>
     if (!body.name) {
-      return HttpResponse.json({ code: 'ERR_INVALID_BODY', message: 'name required' }, { status: 400 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_BODY', message: 'name required' },
+        { status: 400 }
+      )
     }
     if (customers.some((c) => c.name === body.name)) {
-      return HttpResponse.json({ code: 'ERR_DUPLICATE_NAME', message: 'duplicate' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_DUPLICATE_NAME', message: 'duplicate' },
+        { status: 409 }
+      )
     }
     const now = new Date().toISOString()
     const row = {
@@ -213,7 +236,12 @@ export const defaultHandlers = [
     const tier = url.searchParams.get('service_tier') ?? ''
     const fee = url.searchParams.get('fee_item') ?? ''
     const items = pricingEntries
-      .filter((p) => p.country_id === country && p.service_tier === tier && p.fee_item === fee)
+      .filter(
+        (p) =>
+          p.country_id === country &&
+          p.service_tier === tier &&
+          p.fee_item === fee
+      )
       .slice()
       .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
     return HttpResponse.json({ items })
@@ -254,19 +282,27 @@ export const defaultHandlers = [
     pricingEntries.push(row)
     return HttpResponse.json(row, { status: 201 })
   }),
-  http.post('/api/v1/pricing-entries/:id/deprecate', async ({ params, request }) => {
-    const body = (await request.json().catch(() => ({}))) as { effective_to?: string }
-    const row = pricingEntries.find((p) => p.id === params.id)
-    if (!row) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
-    if (row.effective_to) {
-      return HttpResponse.json(
-        { code: 'ERR_ALREADY_DEPRECATED', message: 'already deprecated' },
-        { status: 409 }
-      )
+  http.post(
+    '/api/v1/pricing-entries/:id/deprecate',
+    async ({ params, request }) => {
+      const body = (await request.json().catch(() => ({}))) as {
+        effective_to?: string
+      }
+      const row = pricingEntries.find((p) => p.id === params.id)
+      if (!row)
+        return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+      if (row.effective_to) {
+        return HttpResponse.json(
+          { code: 'ERR_ALREADY_DEPRECATED', message: 'already deprecated' },
+          { status: 409 }
+        )
+      }
+      row.effective_to =
+        body.effective_to ??
+        new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+      return HttpResponse.json(row)
     }
-    row.effective_to = body.effective_to ?? new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-    return HttpResponse.json(row)
-  }),
+  ),
 
   // ---- quotations ----
   // GET list with optional status filter.
@@ -288,14 +324,36 @@ export const defaultHandlers = [
     const body = (await request.json()) as {
       customer_id: string
       country_id: string
+      country_ids?: string[]
+      nice_category_codes?: number[]
+      registration_methods?: Array<'madrid' | 'single'>
+      agent_level?: 'agent_a' | 'agent_b'
       service_tier: 'basic' | 'standard' | 'premium'
+      info_sections?: Array<
+        | 'acceptance_time'
+        | 'registration_time'
+        | 'required_documents'
+        | 'registration_method_intro'
+        | 'real_cases'
+      >
       notes?: string | null
     }
     const now = new Date().toISOString()
+    const countryIds = body.country_ids?.length
+      ? body.country_ids
+      : [body.country_id]
+    const registrationMethods: Array<'madrid' | 'single'> = body
+      .registration_methods?.length
+      ? body.registration_methods
+      : ['single']
     const q = {
       id: randomUUID(),
       customer_id: body.customer_id,
-      country_id: body.country_id,
+      country_id: countryIds[0],
+      country_ids: countryIds,
+      nice_category_codes: body.nice_category_codes ?? [],
+      registration_methods: registrationMethods,
+      agent_level: body.agent_level ?? 'agent_a',
       service_tier: body.service_tier,
       status: 'draft' as const,
       snapshot: null,
@@ -306,6 +364,7 @@ export const defaultHandlers = [
       reviewed_at: null,
       reviewed_by: null,
       review_comment: null,
+      info_sections: body.info_sections ?? [],
       notes: body.notes ?? null,
       created_by: adminUser.id,
       created_at: now,
@@ -323,24 +382,28 @@ export const defaultHandlers = [
     const body = (await request.json()) as {
       customer_id: string
       country_id: string
+      country_ids?: string[]
       service_tier: 'basic' | 'standard' | 'premium'
     }
     if (!customers.find((c) => c.id === body.customer_id)) {
       return HttpResponse.json(
         { code: 'ERR_NOT_FOUND', message: 'customer not found' },
-        { status: 404 },
+        { status: 404 }
       )
     }
+    const countryIds = body.country_ids?.length
+      ? body.country_ids
+      : [body.country_id]
     const matched = pricingEntries.filter(
       (e) =>
-        e.country_id === body.country_id &&
+        countryIds.includes(e.country_id) &&
         e.service_tier === body.service_tier &&
-        e.effective_to === null,
+        e.effective_to === null
     )
     if (matched.length === 0) {
       return HttpResponse.json(
         { code: 'ERR_MISSING_PRICING', message: 'no pricing entries' },
-        { status: 422 },
+        { status: 422 }
       )
     }
     const lines = matched
@@ -351,9 +414,10 @@ export const defaultHandlers = [
       }))
       .sort((a, b) => a.fee_item.localeCompare(b.fee_item))
     const total = lines.reduce((s, l) => s + l.amount_cny_cents, 0)
-    const signature = `mock-${body.country_id}-${body.service_tier}-${total}`
-      .padEnd(64, '0')
-      .slice(0, 64)
+    const signature =
+      `mock-${countryIds.join('-')}-${body.service_tier}-${total}`
+        .padEnd(64, '0')
+        .slice(0, 64)
     return HttpResponse.json({ lines, total_cny_cents: total, signature })
   }),
 
@@ -364,17 +428,27 @@ export const defaultHandlers = [
   }),
 
   http.get('/api/v1/quotations/:id/history', ({ params }) => {
-    return HttpResponse.json({ items: quotationHistory[params.id as string] ?? [] })
+    return HttpResponse.json({
+      items: quotationHistory[params.id as string] ?? [],
+    })
   }),
 
   http.patch('/api/v1/quotations/:id', async ({ params, request }) => {
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'draft') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
-    const body = (await request.json()) as Record<string, unknown>
-    Object.assign(q, body, { updated_at: new Date().toISOString() })
+    const body = (await request.json()) as Record<string, unknown> & {
+      country_ids?: string[]
+    }
+    const countryIds = body.country_ids?.length ? body.country_ids : undefined
+    Object.assign(q, body, countryIds ? { country_id: countryIds[0] } : {}, {
+      updated_at: new Date().toISOString(),
+    })
     return HttpResponse.json(q)
   }),
 
@@ -382,11 +456,17 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'draft') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
     // Freeze a snapshot from whatever pricing is registered for (country, tier).
     const matching = pricingEntries.filter(
-      (p) => p.country_id === q.country_id && p.service_tier === q.service_tier && !p.effective_to,
+      (p) =>
+        q.country_ids.includes(p.country_id) &&
+        p.service_tier === q.service_tier &&
+        !p.effective_to
     )
     if (matching.length === 0) {
       return HttpResponse.json({ code: 'ERR_MISSING_PRICING' }, { status: 422 })
@@ -401,7 +481,11 @@ export const defaultHandlers = [
     const total = lines.reduce((s, l) => s + l.amount_cny_cents, 0)
     const now = new Date().toISOString()
     q.status = 'submitted'
-    q.snapshot = { lines, total_cny_cents: total, signature: 'mock-sig-' + q.id.slice(0, 8) }
+    q.snapshot = {
+      lines,
+      total_cny_cents: total,
+      signature: 'mock-sig-' + q.id.slice(0, 8),
+    }
     q.total_cny_cents = total
     q.signature = q.snapshot.signature
     const ymd = now.slice(0, 10).replace(/-/g, '')
@@ -423,9 +507,14 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'submitted') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
-    const body = (await request.json().catch(() => ({}))) as { comment?: string }
+    const body = (await request.json().catch(() => ({}))) as {
+      comment?: string
+    }
     const now = new Date().toISOString()
     q.status = 'approved'
     q.reviewed_at = now
@@ -447,9 +536,14 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'submitted') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
-    const body = (await request.json().catch(() => ({}))) as { comment?: string }
+    const body = (await request.json().catch(() => ({}))) as {
+      comment?: string
+    }
     const now = new Date().toISOString()
     q.status = 'rejected'
     q.reviewed_at = now
@@ -471,9 +565,14 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'draft') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
-    const body = (await request.json().catch(() => ({}))) as { comment?: string }
+    const body = (await request.json().catch(() => ({}))) as {
+      comment?: string
+    }
     const now = new Date().toISOString()
     q.status = 'cancelled'
     q.updated_at = now
@@ -494,7 +593,10 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'submitted') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
     const now = new Date().toISOString()
     q.status = 'draft'
@@ -516,12 +618,17 @@ export const defaultHandlers = [
   // Copy: any status → brand-new draft cloned from source. No snapshot/serial.
   http.post('/api/v1/quotations/:id/copy', ({ params }) => {
     const src = quotations.find((x) => x.id === params.id)
-    if (!src) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
+    if (!src)
+      return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     const now = new Date().toISOString()
     const copied = {
       id: randomUUID(),
       customer_id: src.customer_id,
       country_id: src.country_id,
+      country_ids: src.country_ids,
+      nice_category_codes: src.nice_category_codes,
+      registration_methods: src.registration_methods,
+      agent_level: src.agent_level,
       service_tier: src.service_tier,
       status: 'draft' as const,
       snapshot: null,
@@ -532,6 +639,7 @@ export const defaultHandlers = [
       reviewed_at: null,
       reviewed_by: null,
       review_comment: null,
+      info_sections: src.info_sections,
       notes: src.notes,
       created_by: adminUser.id,
       created_at: now,
@@ -547,7 +655,10 @@ export const defaultHandlers = [
     const q = quotations.find((x) => x.id === params.id)
     if (!q) return HttpResponse.json({ code: 'ERR_NOT_FOUND' }, { status: 404 })
     if (q.status !== 'submitted') {
-      return HttpResponse.json({ code: 'ERR_INVALID_TRANSITION' }, { status: 409 })
+      return HttpResponse.json(
+        { code: 'ERR_INVALID_TRANSITION' },
+        { status: 409 }
+      )
     }
     const body = (await request.json()) as {
       lines: { fee_item: string; amount_cny_cents: number }[]
@@ -557,7 +668,10 @@ export const defaultHandlers = [
       return HttpResponse.json({ code: 'ERR_EMPTY_ADJUST' }, { status: 422 })
     }
     const totalBefore = q.total_cny_cents ?? 0
-    const totalAfter = body.lines.reduce((s, l) => s + (l.amount_cny_cents || 0), 0)
+    const totalAfter = body.lines.reduce(
+      (s, l) => s + (l.amount_cny_cents || 0),
+      0
+    )
     const now = new Date().toISOString()
     // Adjust-produced lines are "orphan" in M4 semantics — reviewer's
     // manual override has no originating pricing entry. Intentionally
@@ -594,7 +708,8 @@ export const defaultHandlers = [
     return new HttpResponse(zipMagic, {
       status: 200,
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `attachment; filename="quotation-${q.id.slice(0, 8)}.docx"`,
       },
     })
@@ -622,10 +737,15 @@ export const defaultHandlers = [
         updated_at: q.updated_at,
       }))
     const thirtyDaysAgo = Date.now() - 30 * 24 * 3600 * 1000
-    const newCusts = customers.filter((c) => Date.parse(c.created_at) >= thirtyDaysAgo).length
+    const newCusts = customers.filter(
+      (c) => Date.parse(c.created_at) >= thirtyDaysAgo
+    ).length
 
     return HttpResponse.json({
-      quotations_by_status: Object.entries(counts).map(([status, count]) => ({ status, count })),
+      quotations_by_status: Object.entries(counts).map(([status, count]) => ({
+        status,
+        count,
+      })),
       approved_total_cny_cents: approvedTotal,
       new_customers_last_30_days: newCusts,
       recent_quotations: recent,
@@ -651,7 +771,12 @@ export const defaultHandlers = [
     })
   }),
   http.get('/api/v1/catalog/nice-categories', () => {
-    return HttpResponse.json({ items: [] })
+    return HttpResponse.json({
+      items: [
+        { code: 9, name_zh: '科学仪器', name_en: 'Scientific instruments' },
+        { code: 35, name_zh: '广告销售', name_en: 'Advertising and business' },
+      ],
+    })
   }),
 ]
 
@@ -720,6 +845,13 @@ export function seedQuotationDraft(p: {
     id,
     customer_id: p.customer_id,
     country_id: p.country_id,
+    country_ids: [p.country_id],
+    nice_category_codes: [],
+    registration_methods: ['single'],
+    agent_level:
+      p.service_tier === 'standard' || p.service_tier === 'premium'
+        ? 'agent_b'
+        : 'agent_a',
     service_tier: p.service_tier,
     status: 'draft',
     snapshot: null,
@@ -730,6 +862,7 @@ export function seedQuotationDraft(p: {
     reviewed_at: null,
     reviewed_by: null,
     review_comment: null,
+    info_sections: [],
     notes: null,
     created_by: adminUser.id,
     created_at: now,
@@ -762,9 +895,18 @@ export function seedQuotationSubmitted(p: {
     id,
     customer_id: p.customer_id,
     country_id: p.country_id,
+    country_ids: [p.country_id],
+    nice_category_codes: [],
+    registration_methods: ['single'],
+    agent_level:
+      tier === 'standard' || tier === 'premium' ? 'agent_b' : 'agent_a',
     service_tier: tier,
     status: 'submitted',
-    snapshot: { lines, total_cny_cents: total, signature: 'mock-sig-' + id.slice(0, 8) },
+    snapshot: {
+      lines,
+      total_cny_cents: total,
+      signature: 'mock-sig-' + id.slice(0, 8),
+    },
     total_cny_cents: total,
     signature: 'mock-sig-' + id.slice(0, 8),
     serial_no: 'Q' + ymd + '0001',
@@ -772,6 +914,7 @@ export function seedQuotationSubmitted(p: {
     reviewed_at: null,
     reviewed_by: null,
     review_comment: null,
+    info_sections: [],
     notes: null,
     created_by: p.owner_id ?? adminUser.id,
     created_at: now,

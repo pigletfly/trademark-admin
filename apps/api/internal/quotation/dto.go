@@ -9,19 +9,29 @@ import (
 
 // CreateRequest is the POST /quotations body. Creates a new draft.
 type CreateRequest struct {
-	CustomerID  uuid.UUID `json:"customer_id" binding:"required"`
-	CountryID   uuid.UUID `json:"country_id"  binding:"required"`
-	ServiceTier string    `json:"service_tier" binding:"required"`
-	Notes       *string   `json:"notes"`
+	CustomerID          uuid.UUID   `json:"customer_id" binding:"required"`
+	CountryID           uuid.UUID   `json:"country_id"  binding:"required"`
+	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
+	RegistrationMethods []string    `json:"registration_methods,omitempty"`
+	AgentLevel          string      `json:"agent_level,omitempty"`
+	ServiceTier         string      `json:"service_tier" binding:"required"`
+	InfoSections        []string    `json:"info_sections,omitempty"`
+	Notes               *string     `json:"notes"`
 }
 
 // UpdateDraftRequest patches a draft's editable fields. Only applicable
 // while status == draft.
 type UpdateDraftRequest struct {
-	CustomerID  *uuid.UUID `json:"customer_id"`
-	CountryID   *uuid.UUID `json:"country_id"`
-	ServiceTier *string    `json:"service_tier"`
-	Notes       *string    `json:"notes"`
+	CustomerID          *uuid.UUID   `json:"customer_id"`
+	CountryID           *uuid.UUID   `json:"country_id"`
+	CountryIDs          *[]uuid.UUID `json:"country_ids"`
+	NiceCategoryCodes   *[]int       `json:"nice_category_codes"`
+	RegistrationMethods *[]string    `json:"registration_methods"`
+	AgentLevel          *string      `json:"agent_level"`
+	ServiceTier         *string      `json:"service_tier"`
+	InfoSections        *[]string    `json:"info_sections"`
+	Notes               *string      `json:"notes"`
 }
 
 // ReviewRequest is the body for approve/reject. Comment is optional but
@@ -60,23 +70,28 @@ type Snapshot struct {
 
 // Response is the GET response. Shape is flat for easy consumption.
 type Response struct {
-	ID            uuid.UUID  `json:"id"`
-	CustomerID    uuid.UUID  `json:"customer_id"`
-	CountryID     uuid.UUID  `json:"country_id"`
-	ServiceTier   string     `json:"service_tier"`
-	Status        Status     `json:"status"`
-	Snapshot      *Snapshot  `json:"snapshot,omitempty"`
-	TotalCNYCents *int64     `json:"total_cny_cents,omitempty"`
-	Signature     *string    `json:"signature,omitempty"`
-	SerialNo      *string    `json:"serial_no,omitempty"`
-	SubmittedAt   *time.Time `json:"submitted_at,omitempty"`
-	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
-	ReviewedBy    *uuid.UUID `json:"reviewed_by,omitempty"`
-	ReviewComment *string    `json:"review_comment,omitempty"`
-	Notes         *string    `json:"notes,omitempty"`
-	CreatedBy     uuid.UUID  `json:"created_by"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                  uuid.UUID   `json:"id"`
+	CustomerID          uuid.UUID   `json:"customer_id"`
+	CountryID           uuid.UUID   `json:"country_id"`
+	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
+	RegistrationMethods []string    `json:"registration_methods,omitempty"`
+	AgentLevel          string      `json:"agent_level,omitempty"`
+	ServiceTier         string      `json:"service_tier"`
+	Status              Status      `json:"status"`
+	Snapshot            *Snapshot   `json:"snapshot,omitempty"`
+	TotalCNYCents       *int64      `json:"total_cny_cents,omitempty"`
+	Signature           *string     `json:"signature,omitempty"`
+	SerialNo            *string     `json:"serial_no,omitempty"`
+	SubmittedAt         *time.Time  `json:"submitted_at,omitempty"`
+	ReviewedAt          *time.Time  `json:"reviewed_at,omitempty"`
+	ReviewedBy          *uuid.UUID  `json:"reviewed_by,omitempty"`
+	ReviewComment       *string     `json:"review_comment,omitempty"`
+	InfoSections        []string    `json:"info_sections,omitempty"`
+	Notes               *string     `json:"notes,omitempty"`
+	CreatedBy           uuid.UUID   `json:"created_by"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
 }
 
 // HistoryEntry is one row in the transition log, returned by the
@@ -95,9 +110,10 @@ type HistoryEntry struct {
 // Validation tags mirror CreateRequest so bad bodies are rejected before
 // reaching the service.
 type PreviewRequest struct {
-	CustomerID  uuid.UUID `json:"customer_id"  binding:"required"`
-	CountryID   uuid.UUID `json:"country_id"   binding:"required"`
-	ServiceTier string    `json:"service_tier" binding:"required"`
+	CustomerID  uuid.UUID   `json:"customer_id"  binding:"required"`
+	CountryID   uuid.UUID   `json:"country_id"   binding:"required"`
+	CountryIDs  []uuid.UUID `json:"country_ids,omitempty"`
+	ServiceTier string      `json:"service_tier" binding:"required"`
 }
 
 // PreviewResponse is the shape returned by POST /quotations/preview.

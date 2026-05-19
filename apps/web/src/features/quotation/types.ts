@@ -1,5 +1,10 @@
 // Mirrors the Go DTOs in apps/api/internal/quotation/dto.go.
-export type QuotationStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled'
+export type QuotationStatus =
+  | 'draft'
+  | 'submitted'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
 
 export const QUOTATION_STATUS_LABEL_ZH: Record<QuotationStatus, string> = {
   draft: '草稿',
@@ -10,6 +15,15 @@ export const QUOTATION_STATUS_LABEL_ZH: Record<QuotationStatus, string> = {
 }
 
 export type ServiceTier = 'basic' | 'standard' | 'premium'
+
+export type RegistrationMethod = 'madrid' | 'single'
+export type AgentLevel = 'agent_a' | 'agent_b'
+export type QuoteInfoSection =
+  | 'acceptance_time'
+  | 'registration_time'
+  | 'required_documents'
+  | 'registration_method_intro'
+  | 'real_cases'
 
 export interface SnapshotLine {
   fee_item: string
@@ -33,6 +47,10 @@ export interface Quotation {
   id: string
   customer_id: string
   country_id: string
+  country_ids?: string[]
+  nice_category_codes?: number[]
+  registration_methods?: RegistrationMethod[]
+  agent_level?: AgentLevel
   service_tier: ServiceTier
   status: QuotationStatus
   snapshot?: QuotationSnapshot
@@ -43,6 +61,7 @@ export interface Quotation {
   reviewed_at?: string | null
   reviewed_by?: string | null
   review_comment?: string | null
+  info_sections?: QuoteInfoSection[]
   notes?: string | null
   created_by: string
   created_at: string
@@ -52,14 +71,24 @@ export interface Quotation {
 export interface CreateQuotationRequest {
   customer_id: string
   country_id: string
+  country_ids?: string[]
+  nice_category_codes?: number[]
+  registration_methods?: RegistrationMethod[]
+  agent_level?: AgentLevel
   service_tier: ServiceTier
+  info_sections?: QuoteInfoSection[]
   notes?: string | null
 }
 
 export interface UpdateDraftRequest {
   customer_id?: string
   country_id?: string
+  country_ids?: string[]
+  nice_category_codes?: number[]
+  registration_methods?: RegistrationMethod[]
+  agent_level?: AgentLevel
   service_tier?: ServiceTier
+  info_sections?: QuoteInfoSection[]
   notes?: string | null
 }
 

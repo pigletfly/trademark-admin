@@ -1,14 +1,23 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
-import type { Quotation, ServiceTier } from '../types'
+import type {
+  AgentLevel,
+  QuoteInfoSection,
+  Quotation,
+  RegistrationMethod,
+  ServiceTier,
+} from '../types'
 
-// WizardDraft carries the 4 editable quotation fields plus a default
-// tier. Kept as a flat shape so zustand patch calls are trivial.
+// WizardDraft keeps the quotation form flat so zustand patch calls stay
+// predictable and localStorage migrations remain cheap.
 export interface WizardDraft {
   customer_id: string
-  country_id: string
-  service_tier: ServiceTier
+  country_ids: string[]
+  nice_category_codes: number[]
+  registration_methods: RegistrationMethod[]
+  agent_level: AgentLevel
+  info_sections: QuoteInfoSection[]
   notes: string
 }
 
@@ -25,16 +34,31 @@ export interface WizardState {
 
 const EMPTY_DRAFT: WizardDraft = {
   customer_id: '',
-  country_id: '',
-  service_tier: 'basic',
+  country_ids: [],
+  nice_category_codes: [],
+  registration_methods: ['single'],
+  agent_level: 'agent_a',
+  info_sections: [],
   notes: '',
+}
+
+export function serviceTierForAgentLevel(agentLevel: AgentLevel): ServiceTier {
+  return agentLevel === 'agent_b' ? 'standard' : 'basic'
+}
+
+function agentLevelForServiceTier(serviceTier: ServiceTier): AgentLevel {
+  return serviceTier === 'standard' || serviceTier === 'premium'
+    ? 'agent_b'
+    : 'agent_a'
 }
 
 // createWizardStore is user-scoped — each authenticated user gets their
 // own localStorage slot so logging in as a different user never sees
 // the previous user's draft. The caller (route component) constructs
 // the store lazily via useWizardStore().
-export function createWizardStore(userId: string): UseBoundStore<StoreApi<WizardState>> {
+export function createWizardStore(
+  userId: string
+): UseBoundStore<StoreApi<WizardState>> {
   const storageKey = `quotation-wizard-draft:${userId}`
   return create<WizardState>()(
     persist(
@@ -43,16 +67,26 @@ export function createWizardStore(userId: string): UseBoundStore<StoreApi<Wizard
         draft: { ...EMPTY_DRAFT },
         editingId: null,
         setStep: (step) => set({ currentStep: step }),
-        patchDraft: (patch) => set((s) => ({ draft: { ...s.draft, ...patch } })),
-        reset: () => set({ currentStep: 0, draft: { ...EMPTY_DRAFT }, editingId: null }),
+        patchDraft: (patch) =>
+          set((s) => ({ draft: { ...s.draft, ...patch } })),
+        reset: () =>
+          set({ currentStep: 0, draft: { ...EMPTY_DRAFT }, editingId: null }),
         loadForEdit: (id, q) =>
           set({
             editingId: id,
             currentStep: 0,
             draft: {
               customer_id: q.customer_id,
-              country_id: q.country_id,
-              service_tier: q.service_tier,
+              country_ids: q.country_ids?.length
+                ? q.country_ids
+                : [q.country_id],
+              nice_category_codes: q.nice_category_codes ?? [],
+              registration_methods: q.registration_methods?.length
+                ? q.registration_methods
+                : ['single'],
+              agent_level:
+                q.agent_level ?? agentLevelForServiceTier(q.service_tier),
+              info_sections: q.info_sections ?? [],
               notes: q.notes ?? '',
             },
           }),
@@ -67,8 +101,8 @@ export function createWizardStore(userId: string): UseBoundStore<StoreApi<Wizard
           draft: s.draft,
           editingId: s.editingId,
         }),
-      },
-    ),
+      }
+    )
   )
 }
 
@@ -80,11 +114,13 @@ export function isStepCustomerValid(d: WizardDraft): boolean {
 }
 
 export function isStepCountryValid(d: WizardDraft): boolean {
-  return d.country_id.length > 0
+  return (d.country_ids ?? []).length > 0
 }
 
 export function isStepTierValid(d: WizardDraft): boolean {
-  return d.service_tier === 'basic' || d.service_tier === 'standard' || d.service_tier === 'premium'
+  return (
+    (d.agent_level ?? 'agent_a') === 'agent_a' || d.agent_level === 'agent_b'
+  )
 }
 
 // isStepNotesValid: notes is optional, so always valid. Kept for symmetry
@@ -96,5 +132,19 @@ export function isStepNotesValid(_d: WizardDraft): boolean {
 // hasNonEmptyDraft is the "resume banner" trigger — any user-typed
 // content means we should ask before silently reusing the state.
 export function hasNonEmptyDraft(d: WizardDraft): boolean {
-  return d.customer_id.length > 0 || d.country_id.length > 0 || d.notes.length > 0
+  const countryIds = d.country_ids ?? []
+  const niceCategoryCodes = d.nice_category_codes ?? []
+  const registrationMethods = d.registration_methods ?? ['single']
+  const agentLevel = d.agent_level ?? 'agent_a'
+  const infoSections = d.info_sections ?? []
+  return (
+    d.customer_id.length > 0 ||
+    countryIds.length > 0 ||
+    niceCategoryCodes.length > 0 ||
+    registrationMethods.length !== 1 ||
+    registrationMethods[0] !== 'single' ||
+    agentLevel !== 'agent_a' ||
+    infoSections.length > 0 ||
+    d.notes.length > 0
+  )
 }
