@@ -1,3 +1,24 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterProvider,
+  createRootRoute,
+  createRoute,
+  Outlet,
+} from '@tanstack/react-router'
+import { EditQuotationPage } from '@/routes/_authenticated/quotations/$id.edit'
+import { NewQuotationPage } from '@/routes/_authenticated/quotations/new'
+import {
+  resetMswState,
+  seedCustomer,
+  seedPricingEntry,
+  seedQuotationDraft,
+  seedQuotationSubmitted,
+} from '@/test-utils/msw/handlers'
+import { worker } from '@/test-utils/msw/server'
+import { http, HttpResponse } from 'msw'
+import { Toaster } from 'sonner'
 import {
   describe,
   it,
@@ -9,35 +30,14 @@ import {
 } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
-import {
-  createMemoryHistory,
-  createRouter,
-  RouterProvider,
-  createRootRoute,
-  createRoute,
-  Outlet,
-} from '@tanstack/react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Toaster } from 'sonner'
-import { http, HttpResponse } from 'msw'
-import { SidebarProvider } from '@/components/ui/sidebar'
-import { worker } from '@/test-utils/msw/server'
-import {
-  resetMswState,
-  seedCustomer,
-  seedPricingEntry,
-  seedQuotationDraft,
-  seedQuotationSubmitted,
-} from '@/test-utils/msw/handlers'
 import { useAuthStore } from '@/stores/auth-store'
 import { __resetAuthInterceptorState } from '@/lib/api'
+import { SidebarProvider } from '@/components/ui/sidebar'
 import { Quotations } from '@/features/quotation'
-import { QuotationDetail } from '@/features/quotation/detail'
 import { QuotationExportActions } from '@/features/quotation/components/quotation-export-actions'
-import { NewQuotationPage } from '@/routes/_authenticated/quotations/new'
-import { EditQuotationPage } from '@/routes/_authenticated/quotations/$id.edit'
-import { __resetWizardStorePool } from '@/features/quotation/wizard/quotation-wizard'
+import { QuotationDetail } from '@/features/quotation/detail'
 import type { Quotation } from '@/features/quotation/types'
+import { __resetWizardStorePool } from '@/features/quotation/wizard/quotation-wizard'
 
 // Fixed IDs so seed + router + assertions line up.
 const ADMIN_ID = '00000000-0000-0000-0000-000000000001'
@@ -416,9 +416,37 @@ describe('quotation form', () => {
   ) {
     await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
     await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
-    await userEvent.click(screen.getByRole('checkbox', { name: /第 9 类/ }))
+    await selectNiceClass(screen, '9', /Class 9/)
     await userEvent.click(screen.getByRole('checkbox', { name: /中国/ }))
     await userEvent.click(screen.getByRole('checkbox', { name: /马德里/ }))
+  }
+
+  async function openNiceClassesSelect(
+    screen: Awaited<ReturnType<typeof render>>
+  ) {
+    await userEvent.click(
+      screen.getByRole('combobox', { name: /Nice Classes/ })
+    )
+  }
+
+  async function searchNiceClasses(
+    screen: Awaited<ReturnType<typeof render>>,
+    query: string
+  ) {
+    await userEvent.fill(
+      screen.getByPlaceholder('Search code or names...'),
+      query
+    )
+  }
+
+  async function selectNiceClass(
+    screen: Awaited<ReturnType<typeof render>>,
+    query: string,
+    name: RegExp
+  ) {
+    await openNiceClassesSelect(screen)
+    await searchNiceClasses(screen, query)
+    await userEvent.click(screen.getByRole('checkbox', { name }))
   }
 
   it('new form → save draft → detail keeps extended fields', async () => {
@@ -496,7 +524,7 @@ describe('quotation form', () => {
     await expect
       .element(screen.getByRole('checkbox', { name: /中国/ }))
       .toBeChecked()
-    await userEvent.click(screen.getByRole('checkbox', { name: /第 9 类/ }))
+    await selectNiceClass(screen, '9', /Class 9/)
     await userEvent.click(screen.getByRole('radio', { name: /B 代理/ }))
     await expect
       .element(screen.getByRole('radio', { name: /B 代理/ }))
@@ -567,5 +595,86 @@ describe('quotation form', () => {
     await expect
       .element(screen.getByRole('button', { name: /重试/ }))
       .toBeInTheDocument()
+  })
+
+  it('nice classes search narrows options and shows the selected summary', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await openNiceClassesSelect(screen)
+    await searchNiceClasses(screen, '35')
+
+    await expect
+      .element(screen.getByRole('checkbox', { name: /Class 35/ }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('checkbox', { name: /Class 9/ }))
+      .not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /Class 35/ }))
+    await expect
+      .element(screen.getByRole('combobox', { name: /Class 35/ }))
+      .toBeInTheDocument()
+  })
+
+  it('nice classes clear removes selections and disables saving', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await fillRequiredQuotationForm(screen)
+    await expect.element(screen.getByText(/application/)).toBeInTheDocument()
+
+    await openNiceClassesSelect(screen)
+    await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+    await expect
+      .element(screen.getByRole('button', { name: '保存草稿' }))
+      .toBeDisabled()
+    await expect
+      .element(screen.getByRole('button', { name: '保存并提交' }))
+      .toBeDisabled()
+    await expect
+      .element(screen.getByRole('combobox', { name: /Select nice classes/ }))
+      .toBeInTheDocument()
+  })
+
+  it('nice classes select all only toggles the filtered result set', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await openNiceClassesSelect(screen)
+    await searchNiceClasses(screen, '35')
+    await userEvent.click(screen.getByRole('button', { name: 'Select All' }))
+
+    await expect
+      .element(screen.getByRole('combobox', { name: /Class 35/ }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('combobox', { name: /Class 9/ }))
+      .not.toBeInTheDocument()
   })
 })
