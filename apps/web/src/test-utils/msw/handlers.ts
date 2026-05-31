@@ -767,6 +767,16 @@ export const defaultHandlers = [
           sort_order: 0,
           enabled: true,
         },
+        {
+          id: '00000000-0000-0000-0000-000000000101',
+          code: 'US',
+          name_zh: 'United States',
+          name_en: 'United States',
+          is_madrid_member: true,
+          requires_notarization: false,
+          sort_order: 1,
+          enabled: true,
+        },
       ],
     })
   }),

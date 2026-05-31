@@ -20,6 +20,18 @@ services:
     ports: ["3001:3000"]
     restart: unless-stopped
 
+  export-data-init:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/exports
+        chown -R 65532:65532 /data/exports
+        chmod 750 /data/exports
+    volumes:
+      - export_data:/data/exports
+
   api:
     build:
       context: .
@@ -29,6 +41,8 @@ services:
         condition: service_healthy
       gotenberg:
         condition: service_started
+      export-data-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://trademark:trademark@postgres:5432/trademark?sslmode=disable
       HTTP_LISTEN_ADDR: ":8080"

@@ -417,7 +417,7 @@ describe('quotation form', () => {
     await userEvent.click(screen.getByRole('combobox', { name: /客户/ }))
     await userEvent.click(screen.getByRole('option', { name: /Acme/ }))
     await selectNiceClass(screen, '9', /Class 9/)
-    await userEvent.click(screen.getByRole('checkbox', { name: /中国/ }))
+    await selectCountry(screen, 'CN', /China/)
     await userEvent.click(screen.getByRole('checkbox', { name: /马德里/ }))
   }
 
@@ -447,6 +447,31 @@ describe('quotation form', () => {
     await openNiceClassesSelect(screen)
     await searchNiceClasses(screen, query)
     await userEvent.click(screen.getByRole('checkbox', { name }))
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+  }
+
+  async function openCountriesSelect(
+    screen: Awaited<ReturnType<typeof render>>
+  ) {
+    await userEvent.click(screen.getByRole('combobox', { name: /Countries/ }))
+  }
+
+  async function searchCountries(
+    screen: Awaited<ReturnType<typeof render>>,
+    query: string
+  ) {
+    await userEvent.fill(screen.getByPlaceholder('Search countries...'), query)
+  }
+
+  async function selectCountry(
+    screen: Awaited<ReturnType<typeof render>>,
+    query: string,
+    name: RegExp
+  ) {
+    await openCountriesSelect(screen)
+    await searchCountries(screen, query)
+    await userEvent.click(screen.getByRole('checkbox', { name }))
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
   }
 
   it('new form → save draft → detail keeps extended fields', async () => {
@@ -522,8 +547,8 @@ describe('quotation form', () => {
     )
 
     await expect
-      .element(screen.getByRole('checkbox', { name: /中国/ }))
-      .toBeChecked()
+      .element(screen.getByRole('combobox', { name: /China/ }))
+      .toBeInTheDocument()
     await selectNiceClass(screen, '9', /Class 9/)
     await userEvent.click(screen.getByRole('radio', { name: /B 代理/ }))
     await expect
@@ -676,5 +701,35 @@ describe('quotation form', () => {
     await expect
       .element(screen.getByRole('combobox', { name: /Class 9/ }))
       .not.toBeInTheDocument()
+  })
+
+  it('countries search narrows options and shows the selected summary', async () => {
+    await seedWizardPrereqs()
+    const { router, queryClient } = buildRouter(
+      'salesperson',
+      '/quotations/new'
+    )
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await openCountriesSelect(screen)
+    await searchCountries(screen, 'US')
+
+    await expect
+      .element(screen.getByRole('checkbox', { name: /United States/ }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('checkbox', { name: /China/ }))
+      .not.toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /United States/ })
+    )
+    await expect
+      .element(screen.getByRole('combobox', { name: /United States/ }))
+      .toBeInTheDocument()
   })
 })

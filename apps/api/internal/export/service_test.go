@@ -43,7 +43,7 @@ func TestService_GeneratePDF_Persists(t *testing.T) {
 	pdf := &fakePDFRenderer{out: []byte("%PDF-fake")}
 	svc, qid, actorID := buildService(t, pdf, 24*time.Hour)
 
-	frozen := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
+	frozen := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
 	svc = svc.WithClock(fixedClock(frozen))
 
 	view := baseView()

@@ -35,6 +35,7 @@ import {
   useUpdateQuotationDraft,
 } from '../hooks/use-quotation-mutations'
 import type { AgentLevel, QuoteInfoSection, RegistrationMethod } from '../types'
+import { CountryMultiSelect } from './country-multi-select'
 import { usePreview } from './hooks/use-preview'
 import { NiceClassMultiSelect } from './nice-class-multi-select'
 import {
@@ -216,29 +217,18 @@ export function QuotationWizard({ mode }: Props) {
                   />
                 </section>
 
-                <MultiCheckSection title='国家 / Countries'>
-                  {countries.data?.map((country) => {
-                    const id = `country-${country.id}`
-                    return (
-                      <CheckboxRow
-                        key={country.id}
-                        id={id}
-                        checked={draft.country_ids.includes(country.id)}
-                        label={`${country.name_zh}（${country.code}）`}
-                        description={country.name_en}
-                        onCheckedChange={(checked) =>
-                          state.patchDraft({
-                            country_ids: toggleValue(
-                              draft.country_ids,
-                              country.id,
-                              checked
-                            ),
-                          })
-                        }
-                      />
-                    )
-                  })}
-                </MultiCheckSection>
+                <section className='grid gap-3'>
+                  <Label htmlFor='quotation-countries'>国家 / Countries</Label>
+                  <CountryMultiSelect
+                    id='quotation-countries'
+                    countries={countries.data ?? []}
+                    value={draft.country_ids}
+                    loading={countries.isLoading}
+                    onValueChange={(ids) =>
+                      state.patchDraft({ country_ids: ids })
+                    }
+                  />
+                </section>
 
                 <MultiCheckSection title='注册方式 / Registration Methods'>
                   {REGISTRATION_METHOD_OPTIONS.map((option) => (
