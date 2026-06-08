@@ -39,18 +39,28 @@
 <h2>2. Fee Breakdown</h2>
 <table>
   <thead><tr>
+    <th>Method</th>
+    <th>Country/Region</th>
     <th>Fee Item</th>
+    <th class="right">Qty</th>
+    <th class="right">Unit (CNY)</th>
+    <th class="right">Official (CHF)</th>
     <th class="right">Amount (CNY)</th>
   </tr></thead>
   <tbody>
     {{range .Lines}}
     <tr>
+      <td>{{.RegistrationMethod}}</td>
+      <td>{{.CountryArea}}</td>
       <td>{{.FeeItem}}</td>
+      <td class="right">{{fmtQuantity .Quantity}}</td>
+      <td class="right">{{fmtCNYPtr .UnitAmountCNYCents}}</td>
+      <td class="right">{{fmtCHFPtr .OfficialFeeCHFCents}}</td>
       <td class="right">{{fmtCNY .AmountCNYCents}}</td>
     </tr>
     {{end}}
     <tr class="total">
-      <td>Total</td>
+      <td colspan="6">Total</td>
       <td class="right">{{fmtCNY .TotalCNYCents}}</td>
     </tr>
   </tbody>

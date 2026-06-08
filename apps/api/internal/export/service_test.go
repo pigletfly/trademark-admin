@@ -112,6 +112,31 @@ func TestService_GenerateDOCX_Persists(t *testing.T) {
 	}
 }
 
+func TestService_GenerateXLSX_Persists(t *testing.T) {
+	svc, qid, actorID := buildService(t, &fakePDFRenderer{}, time.Hour)
+
+	view := baseView()
+	view.QuotationID = qid.String()
+
+	f, err := svc.GenerateXLSX(context.Background(), view, export.LanguageBilingual, qid, actorID)
+	if err != nil {
+		t.Fatalf("generate xlsx: %v", err)
+	}
+	if f.Format != export.FormatXLSX {
+		t.Errorf("format: got %q want xlsx", f.Format)
+	}
+	if _, err := os.Stat(f.FilePath); err != nil {
+		t.Errorf("file not written: %v", err)
+	}
+	data, err := os.ReadFile(f.FilePath)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if len(data) < 4 || string(data[:2]) != "PK" {
+		t.Errorf("does not look like a .xlsx ZIP; first bytes=%q", string(data[:min(len(data), 8)]))
+	}
+}
+
 func TestService_GeneratePDF_RenderError_NoPersistence(t *testing.T) {
 	pdf := &fakePDFRenderer{err: errors.New("boom")}
 	svc, qid, actorID := buildService(t, pdf, time.Hour)

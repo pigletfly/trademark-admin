@@ -33,8 +33,13 @@ type QuotationView struct {
 
 // ExportLine is one priced fee item from the quotation snapshot.
 type ExportLine struct {
-	FeeItem        string
-	AmountCNYCents int64
+	FeeItem             string
+	RegistrationMethod  string
+	CountryArea         string
+	Quantity            int
+	UnitAmountCNYCents  *int64
+	OfficialFeeCHFCents *int64
+	AmountCNYCents      int64
 }
 
 // RenderDOCX writes a .docx file's bytes to w. Format is bilingual —
@@ -119,11 +124,27 @@ func renderBody(v QuotationView) (string, error) {
 	heading(&b, "2. 报价明细 / Fee Breakdown", 20, false)
 	// Table header.
 	b.WriteString(`<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/></w:tblPr>`)
-	tableRow(&b, []string{"费用项 / Fee Item", "金额 / Amount (CNY)"}, true)
+	tableRow(&b, []string{
+		"注册方式 / Method",
+		"国家/地区 / Country",
+		"费用项 / Fee Item",
+		"数量 / Qty",
+		"单价 / Unit (CNY)",
+		"官费 / Official (CHF)",
+		"金额 / Amount (CNY)",
+	}, true)
 	for _, l := range v.Lines {
-		tableRow(&b, []string{l.FeeItem, fmtCNY(l.AmountCNYCents)}, false)
+		tableRow(&b, []string{
+			l.RegistrationMethod,
+			l.CountryArea,
+			l.FeeItem,
+			fmtQuantity(l.Quantity),
+			fmtCNYPtr(l.UnitAmountCNYCents),
+			fmtCHFPtr(l.OfficialFeeCHFCents),
+			fmtCNY(l.AmountCNYCents),
+		}, false)
 	}
-	tableRow(&b, []string{"合计 / Total", fmtCNY(v.TotalCNYCents)}, true)
+	tableRow(&b, []string{"", "", "合计 / Total", "", "", "", fmtCNY(v.TotalCNYCents)}, true)
 	b.WriteString(`</w:tbl>`)
 	para(&b, "")
 
@@ -196,6 +217,27 @@ func xmlEscape(s string) string {
 func fmtCNY(cents int64) string {
 	yuan := float64(cents) / 100
 	return fmt.Sprintf("¥ %s", humanMoney(yuan))
+}
+
+func fmtCNYPtr(cents *int64) string {
+	if cents == nil {
+		return ""
+	}
+	return fmtCNY(*cents)
+}
+
+func fmtCHFPtr(cents *int64) string {
+	if cents == nil {
+		return ""
+	}
+	return fmt.Sprintf("CHF %s", humanMoney(float64(*cents)/100))
+}
+
+func fmtQuantity(quantity int) string {
+	if quantity <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", quantity)
 }
 
 // humanMoney formats 1234567.89 as "1,234,567.89".

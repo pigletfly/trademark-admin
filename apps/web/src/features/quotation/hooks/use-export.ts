@@ -1,8 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-
 import { api } from '@/lib/api'
-
 import type { ExportFileDTO, ExportRequest } from '../types'
 
 export function useExportQuotation(quotationId: string) {
@@ -10,7 +8,7 @@ export function useExportQuotation(quotationId: string) {
     mutationFn: async (req: ExportRequest) => {
       const { data } = await api.post<ExportFileDTO>(
         `/quotations/${quotationId}/export`,
-        req,
+        req
       )
       return data
     },
@@ -19,7 +17,9 @@ export function useExportQuotation(quotationId: string) {
       toast.success(
         data.format === 'pdf'
           ? '已生成 PDF / PDF ready'
-          : '已生成 Word / Word ready',
+          : data.format === 'xlsx'
+            ? '已生成 Excel / Excel ready'
+            : '已生成 Word / Word ready'
       )
     },
     onError: (err: unknown) => {

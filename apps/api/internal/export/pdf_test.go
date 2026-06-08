@@ -50,6 +50,39 @@ func TestRenderHTML_Bilingual_ContainsBothLanguages(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_Bilingual_IncludesMethodPricingColumns(t *testing.T) {
+	v := baseView()
+	unit := int64(574640)
+	chf := int64(65300)
+	v.Lines = []export.ExportLine{
+		{
+			FeeItem:             "Madrid base official fee",
+			RegistrationMethod:  "madrid",
+			CountryArea:         "Basic registration fee - black and white mark",
+			Quantity:            1,
+			UnitAmountCNYCents:  &unit,
+			OfficialFeeCHFCents: &chf,
+			AmountCNYCents:      574640,
+		},
+	}
+	html, err := export.RenderHTML(v, export.LanguageBilingual)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	s := string(html)
+	for _, want := range []string{
+		"注册方式 Method",
+		"国家/地区 Country/Region",
+		"madrid",
+		"Basic registration fee - black and white mark",
+		"CHF 653.00",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in output:\n%s", want, s)
+		}
+	}
+}
+
 func TestRenderHTML_ZH_NoEnglishLabels(t *testing.T) {
 	html, err := export.RenderHTML(baseView(), export.LanguageZH)
 	if err != nil {

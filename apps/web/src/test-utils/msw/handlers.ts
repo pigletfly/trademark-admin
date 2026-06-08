@@ -43,6 +43,47 @@ let pricingEntries: Array<{
   updated_at: string
 }> = []
 
+let madridPricingEntries: Array<{
+  id: string
+  country_id?: string | null
+  sequence_no?: number | null
+  country_area: string
+  official_fee_chf_cents: number
+  agency_fee_cny_cents: number
+  is_base_fee: boolean
+  notes: string | null
+  effective_from: string
+  effective_to: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}> = []
+
+let singleClassPricingEntries: Array<{
+  id: string
+  country_id: string
+  continent: string
+  country_area: string
+  first_class_fee_cny_cents: number
+  first_class_fee_tax6_cny_cents: number
+  first_class_fee_tax1_cny_cents: number
+  additional_class_fee_cny_cents: number
+  additional_class_fee_tax6_cny_cents: number
+  additional_class_fee_tax1_cny_cents: number
+  required_documents: string
+  notarization_fee: string
+  acceptance_time: string
+  registration_months: string
+  validity_years?: number | null
+  note1?: string | null
+  note2?: string | null
+  effective_from: string
+  effective_to: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}> = []
+
 // In-memory quotations store.
 let quotations: Array<{
   id: string
@@ -108,6 +149,143 @@ function randomUUID() {
     return v.toString(16)
   })
   return s
+}
+
+function calculateMethodLines(
+  countryIds: string[],
+  methods: Array<'madrid' | 'single'>,
+  classCount: number
+): null | Array<{
+  fee_item: string
+  amount_cny_cents: number
+  source_pricing_id?: string
+  source_pricing_table?: string
+  registration_method?: 'madrid' | 'single'
+  country_id?: string | null
+  country_area?: string
+  quantity?: number
+  unit_amount_cny_cents?: number
+  official_fee_chf_cents?: number
+}> {
+  const hasSingle = singleClassPricingEntries.some(
+    (entry) => entry.effective_to == null
+  )
+  const hasMadrid = madridPricingEntries.some(
+    (entry) => entry.effective_to == null
+  )
+  if (!hasSingle && !hasMadrid) return null
+
+  const lines: Array<{
+    fee_item: string
+    amount_cny_cents: number
+    source_pricing_id?: string
+    source_pricing_table?: string
+    registration_method?: 'madrid' | 'single'
+    country_id?: string | null
+    country_area?: string
+    quantity?: number
+    unit_amount_cny_cents?: number
+    official_fee_chf_cents?: number
+  }> = []
+  for (const method of methods) {
+    if (method === 'single') {
+      for (const countryId of countryIds) {
+        const row = singleClassPricingEntries.find(
+          (entry) =>
+            entry.effective_to == null && entry.country_id === countryId
+        )
+        if (!row) return []
+        lines.push({
+          fee_item: 'Single filing first class fee',
+          amount_cny_cents: row.first_class_fee_cny_cents,
+          source_pricing_id: row.id,
+          source_pricing_table: 'single_class_pricing_entries',
+          registration_method: 'single',
+          country_id: countryId,
+          country_area: row.country_area,
+          quantity: 1,
+          unit_amount_cny_cents: row.first_class_fee_cny_cents,
+        })
+        const additionalCount = Math.max(0, classCount - 1)
+        if (additionalCount > 0) {
+          lines.push({
+            fee_item: 'Single filing additional class fee',
+            amount_cny_cents:
+              row.additional_class_fee_cny_cents * additionalCount,
+            source_pricing_id: row.id,
+            source_pricing_table: 'single_class_pricing_entries',
+            registration_method: 'single',
+            country_id: countryId,
+            country_area: row.country_area,
+            quantity: additionalCount,
+            unit_amount_cny_cents: row.additional_class_fee_cny_cents,
+          })
+        }
+      }
+    }
+    if (method === 'madrid') {
+      const base = madridPricingEntries.find(
+        (entry) => entry.effective_to == null && entry.is_base_fee
+      )
+      if (!base) return []
+      const baseOfficial = Math.round((base.official_fee_chf_cents * 880) / 100)
+      lines.push({
+        fee_item: 'Madrid base official fee',
+        amount_cny_cents: baseOfficial,
+        source_pricing_id: base.id,
+        source_pricing_table: 'madrid_pricing_entries',
+        registration_method: 'madrid',
+        country_area: base.country_area,
+        quantity: 1,
+        unit_amount_cny_cents: baseOfficial,
+        official_fee_chf_cents: base.official_fee_chf_cents,
+      })
+      lines.push({
+        fee_item: 'Madrid base agency fee',
+        amount_cny_cents: base.agency_fee_cny_cents,
+        source_pricing_id: base.id,
+        source_pricing_table: 'madrid_pricing_entries',
+        registration_method: 'madrid',
+        country_area: base.country_area,
+        quantity: 1,
+        unit_amount_cny_cents: base.agency_fee_cny_cents,
+      })
+      for (const countryId of countryIds) {
+        const row = madridPricingEntries.find(
+          (entry) =>
+            entry.effective_to == null &&
+            !entry.is_base_fee &&
+            entry.country_id === countryId
+        )
+        if (!row) return []
+        const official = Math.round((row.official_fee_chf_cents * 880) / 100)
+        lines.push({
+          fee_item: 'Madrid designated country official fee',
+          amount_cny_cents: official,
+          source_pricing_id: row.id,
+          source_pricing_table: 'madrid_pricing_entries',
+          registration_method: 'madrid',
+          country_id: countryId,
+          country_area: row.country_area,
+          quantity: 1,
+          unit_amount_cny_cents: official,
+          official_fee_chf_cents: row.official_fee_chf_cents,
+        })
+        lines.push({
+          fee_item: 'Madrid designated country agency fee',
+          amount_cny_cents: row.agency_fee_cny_cents,
+          source_pricing_id: row.id,
+          source_pricing_table: 'madrid_pricing_entries',
+          registration_method: 'madrid',
+          country_id: countryId,
+          country_area: row.country_area,
+          quantity: 1,
+          unit_amount_cny_cents: row.agency_fee_cny_cents,
+        })
+      }
+    }
+  }
+  return lines
 }
 
 export const defaultHandlers = [
@@ -304,6 +482,127 @@ export const defaultHandlers = [
     }
   ),
 
+  http.get('/api/v1/madrid-pricing-entries', ({ request }) => {
+    const url = new URL(request.url)
+    const country = url.searchParams.get('country_id')
+    const includeBase = url.searchParams.get('include_base') === 'true'
+    const items = madridPricingEntries.filter((entry) => {
+      if (entry.effective_to != null) return false
+      if (!country) return true
+      if (entry.is_base_fee) return includeBase
+      return entry.country_id === country
+    })
+    return HttpResponse.json({ items })
+  }),
+  http.post('/api/v1/madrid-pricing-entries', async ({ request }) => {
+    const body = (await request.json()) as {
+      country_id?: string | null
+      sequence_no?: number | null
+      country_area: string
+      official_fee_chf_cents: number
+      agency_fee_cny_cents: number
+      is_base_fee: boolean
+      notes?: string | null
+      effective_from: string
+    }
+    for (const entry of madridPricingEntries) {
+      if (entry.effective_to != null) continue
+      if (body.is_base_fee && entry.is_base_fee) {
+        entry.effective_to = body.effective_from
+      }
+      if (
+        !body.is_base_fee &&
+        !entry.is_base_fee &&
+        entry.country_id === body.country_id
+      ) {
+        entry.effective_to = body.effective_from
+      }
+    }
+    const now = new Date().toISOString()
+    const row = {
+      id: 'mp_' + Math.random().toString(36).slice(2, 10),
+      country_id: body.country_id ?? null,
+      sequence_no: body.sequence_no ?? null,
+      country_area: body.country_area,
+      official_fee_chf_cents: body.official_fee_chf_cents,
+      agency_fee_cny_cents: body.agency_fee_cny_cents,
+      is_base_fee: body.is_base_fee,
+      notes: body.notes ?? null,
+      effective_from: body.effective_from,
+      effective_to: null,
+      created_by: adminUser.id,
+      created_at: now,
+      updated_at: now,
+    }
+    madridPricingEntries.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+
+  http.get('/api/v1/single-class-pricing-entries', ({ request }) => {
+    const url = new URL(request.url)
+    const country = url.searchParams.get('country_id')
+    const items = singleClassPricingEntries.filter(
+      (entry) =>
+        entry.effective_to == null && (!country || entry.country_id === country)
+    )
+    return HttpResponse.json({ items })
+  }),
+  http.post('/api/v1/single-class-pricing-entries', async ({ request }) => {
+    const body = (await request.json()) as {
+      country_id: string
+      continent: string
+      country_area: string
+      first_class_fee_cny_cents: number
+      first_class_fee_tax6_cny_cents: number
+      first_class_fee_tax1_cny_cents: number
+      additional_class_fee_cny_cents: number
+      additional_class_fee_tax6_cny_cents: number
+      additional_class_fee_tax1_cny_cents: number
+      required_documents?: string
+      notarization_fee?: string
+      acceptance_time?: string
+      registration_months?: string
+      validity_years?: number | null
+      note1?: string | null
+      note2?: string | null
+      effective_from: string
+    }
+    for (const entry of singleClassPricingEntries) {
+      if (entry.country_id === body.country_id && entry.effective_to == null) {
+        entry.effective_to = body.effective_from
+      }
+    }
+    const now = new Date().toISOString()
+    const row = {
+      id: 'sp_' + Math.random().toString(36).slice(2, 10),
+      country_id: body.country_id,
+      continent: body.continent,
+      country_area: body.country_area,
+      first_class_fee_cny_cents: body.first_class_fee_cny_cents,
+      first_class_fee_tax6_cny_cents: body.first_class_fee_tax6_cny_cents,
+      first_class_fee_tax1_cny_cents: body.first_class_fee_tax1_cny_cents,
+      additional_class_fee_cny_cents: body.additional_class_fee_cny_cents,
+      additional_class_fee_tax6_cny_cents:
+        body.additional_class_fee_tax6_cny_cents,
+      additional_class_fee_tax1_cny_cents:
+        body.additional_class_fee_tax1_cny_cents,
+      required_documents: body.required_documents ?? '',
+      notarization_fee: body.notarization_fee ?? '',
+      acceptance_time: body.acceptance_time ?? '',
+      registration_months: body.registration_months ?? '',
+      validity_years: body.validity_years ?? null,
+      note1: body.note1 ?? null,
+      note2: body.note2 ?? null,
+      effective_from: body.effective_from,
+      effective_to: null,
+      created_by: adminUser.id,
+      created_at: now,
+      updated_at: now,
+    }
+    singleClassPricingEntries.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+
   // ---- quotations ----
   // GET list with optional status filter.
   http.get('/api/v1/quotations', ({ request }) => {
@@ -383,6 +682,8 @@ export const defaultHandlers = [
       customer_id: string
       country_id: string
       country_ids?: string[]
+      nice_category_codes?: number[]
+      registration_methods?: Array<'madrid' | 'single'>
       service_tier: 'basic' | 'standard' | 'premium'
     }
     if (!customers.find((c) => c.id === body.customer_id)) {
@@ -394,6 +695,33 @@ export const defaultHandlers = [
     const countryIds = body.country_ids?.length
       ? body.country_ids
       : [body.country_id]
+    const methodLines = calculateMethodLines(
+      countryIds,
+      body.registration_methods?.length
+        ? body.registration_methods
+        : ['single'],
+      body.nice_category_codes?.length ?? 1
+    )
+    if (methodLines !== null) {
+      if (methodLines.length === 0) {
+        return HttpResponse.json(
+          { code: 'ERR_MISSING_PRICING', message: 'no pricing entries' },
+          { status: 422 }
+        )
+      }
+      const total = methodLines.reduce(
+        (sum, line) => sum + line.amount_cny_cents,
+        0
+      )
+      const signature = `mock-method-${countryIds.join('-')}-${total}`
+        .padEnd(64, '0')
+        .slice(0, 64)
+      return HttpResponse.json({
+        lines: methodLines,
+        total_cny_cents: total,
+        signature,
+      })
+    }
     const matched = pricingEntries.filter(
       (e) =>
         countryIds.includes(e.country_id) &&
@@ -461,7 +789,47 @@ export const defaultHandlers = [
         { status: 409 }
       )
     }
-    // Freeze a snapshot from whatever pricing is registered for (country, tier).
+    const methodLines = calculateMethodLines(
+      q.country_ids,
+      q.registration_methods,
+      q.nice_category_codes.length || 1
+    )
+    if (methodLines !== null) {
+      if (methodLines.length === 0) {
+        return HttpResponse.json(
+          { code: 'ERR_MISSING_PRICING' },
+          { status: 422 }
+        )
+      }
+      const total = methodLines.reduce(
+        (sum, line) => sum + line.amount_cny_cents,
+        0
+      )
+      const now = new Date().toISOString()
+      q.status = 'submitted'
+      q.snapshot = {
+        lines: methodLines,
+        total_cny_cents: total,
+        signature: 'mock-method-sig-' + q.id.slice(0, 8),
+      }
+      q.total_cny_cents = total
+      q.signature = q.snapshot.signature
+      const ymd = now.slice(0, 10).replace(/-/g, '')
+      q.serial_no = 'Q' + ymd + '0001'
+      q.submitted_at = now
+      q.updated_at = now
+      quotationHistory[q.id] = quotationHistory[q.id] ?? []
+      quotationHistory[q.id].push({
+        from_status: 'draft',
+        to_status: 'submitted',
+        actor_id: adminUser.id,
+        comment: null,
+        at: now,
+      })
+      return HttpResponse.json(q)
+    }
+
+    // Freeze a snapshot from whatever legacy pricing is registered for (country, tier).
     const matching = pricingEntries.filter(
       (p) =>
         q.country_ids.includes(p.country_id) &&
@@ -777,6 +1145,16 @@ export const defaultHandlers = [
           sort_order: 1,
           enabled: true,
         },
+        {
+          id: '00000000-0000-0000-0000-000000000102',
+          code: 'AR',
+          name_zh: 'Argentina',
+          name_en: 'Argentina',
+          is_madrid_member: false,
+          requires_notarization: false,
+          sort_order: 2,
+          enabled: true,
+        },
       ],
     })
   }),
@@ -794,6 +1172,8 @@ export function resetMswState() {
   loggedIn = false
   customers = []
   pricingEntries = []
+  madridPricingEntries = []
+  singleClassPricingEntries = []
   quotations = []
   quotationHistory = {}
 }

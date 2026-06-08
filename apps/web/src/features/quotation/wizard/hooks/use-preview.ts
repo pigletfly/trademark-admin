@@ -1,18 +1,22 @@
-import { useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { ServiceTier } from '../../types'
+import type { RegistrationMethod, ServiceTier } from '../../types'
 
 export interface PreviewRequest {
   customer_id: string
   country_id: string
   country_ids?: string[]
+  nice_category_codes?: number[]
+  registration_methods?: RegistrationMethod[]
   service_tier: ServiceTier
 }
 
 export interface PreviewLine {
   fee_item: string
   amount_cny_cents: number
+  registration_method?: RegistrationMethod
+  country_area?: string
 }
 
 export interface PreviewResponse {

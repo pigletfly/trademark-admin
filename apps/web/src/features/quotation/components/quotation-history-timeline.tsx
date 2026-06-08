@@ -1,5 +1,7 @@
-import type { QuotationHistoryEntry } from '../types'
-import { QUOTATION_STATUS_LABEL_ZH } from '../types'
+import {
+  QUOTATION_STATUS_LABEL_ZH,
+  type QuotationHistoryEntry,
+} from '../types'
 
 interface Props {
   items: QuotationHistoryEntry[]

@@ -35,3 +35,75 @@ export interface CreateOrReplacePricingRequest {
 export interface ListEnvelope<T> {
   items: T[]
 }
+
+export interface MadridPricingEntry {
+  id: string
+  country_id?: string | null
+  sequence_no?: number | null
+  country_area: string
+  official_fee_chf_cents: number
+  agency_fee_cny_cents: number
+  is_base_fee: boolean
+  notes?: string | null
+  effective_from: string
+  effective_to?: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateOrReplaceMadridPricingRequest {
+  country_id?: string | null
+  sequence_no?: number | null
+  country_area: string
+  official_fee_chf_cents: number
+  agency_fee_cny_cents: number
+  is_base_fee: boolean
+  notes?: string | null
+  effective_from: string
+}
+
+export interface SingleClassPricingEntry {
+  id: string
+  country_id: string
+  continent: string
+  country_area: string
+  first_class_fee_cny_cents: number
+  first_class_fee_tax6_cny_cents: number
+  first_class_fee_tax1_cny_cents: number
+  additional_class_fee_cny_cents: number
+  additional_class_fee_tax6_cny_cents: number
+  additional_class_fee_tax1_cny_cents: number
+  required_documents: string
+  notarization_fee: string
+  acceptance_time: string
+  registration_months: string
+  validity_years?: number | null
+  note1?: string | null
+  note2?: string | null
+  effective_from: string
+  effective_to?: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateOrReplaceSingleClassPricingRequest {
+  country_id: string
+  continent: string
+  country_area: string
+  first_class_fee_cny_cents: number
+  first_class_fee_tax6_cny_cents: number
+  first_class_fee_tax1_cny_cents: number
+  additional_class_fee_cny_cents: number
+  additional_class_fee_tax6_cny_cents: number
+  additional_class_fee_tax1_cny_cents: number
+  required_documents: string
+  notarization_fee: string
+  acceptance_time: string
+  registration_months: string
+  validity_years?: number | null
+  note1?: string | null
+  note2?: string | null
+  effective_from: string
+}

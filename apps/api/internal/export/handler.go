@@ -121,6 +121,8 @@ func (h *Handler) Export(c *gin.Context) {
 		rec, err = h.exportSvc.GeneratePDF(c.Request.Context(), view, req.Language, id, user.ID)
 	case FormatDOCX:
 		rec, err = h.exportSvc.GenerateDOCX(c.Request.Context(), view, req.Language, id, user.ID)
+	case FormatXLSX:
+		rec, err = h.exportSvc.GenerateXLSX(c.Request.Context(), view, req.Language, id, user.ID)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_EXPORT_FAILED", "message": err.Error()})
@@ -165,6 +167,10 @@ func (h *Handler) Download(c *gin.Context) {
 	if f.Format == FormatDOCX {
 		ctype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 		ext = "docx"
+	}
+	if f.Format == FormatXLSX {
+		ctype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		ext = "xlsx"
 	}
 	fname := "quotation-" + f.QuotationID.String()[:8] + "-" + string(f.Language) + "." + ext
 	c.Header("Content-Type", ctype)
@@ -233,7 +239,15 @@ func (h *Handler) buildView(
 		GeneratedAt:   time.Now(),
 	}
 	for _, l := range snap.Lines {
-		v.Lines = append(v.Lines, ExportLine{FeeItem: l.FeeItem, AmountCNYCents: l.AmountCNYCents})
+		v.Lines = append(v.Lines, ExportLine{
+			FeeItem:             l.FeeItem,
+			RegistrationMethod:  l.RegistrationMethod,
+			CountryArea:         l.CountryArea,
+			Quantity:            l.Quantity,
+			UnitAmountCNYCents:  l.UnitAmountCNYCents,
+			OfficialFeeCHFCents: l.OfficialFeeCHFCents,
+			AmountCNYCents:      l.AmountCNYCents,
+		})
 	}
 	return v, nil
 }
@@ -262,8 +276,10 @@ func writeViewErr(c *gin.Context, err error) {
 	}
 }
 
-func isValidFormat(f Format) bool     { return f == FormatPDF || f == FormatDOCX }
-func isValidLanguage(l Language) bool { return l == LanguageZH || l == LanguageEN || l == LanguageBilingual }
+func isValidFormat(f Format) bool { return f == FormatPDF || f == FormatDOCX || f == FormatXLSX }
+func isValidLanguage(l Language) bool {
+	return l == LanguageZH || l == LanguageEN || l == LanguageBilingual
+}
 
 // ExportFileDTO is the JSON response for POST /quotations/:id/export.
 type ExportFileDTO struct {

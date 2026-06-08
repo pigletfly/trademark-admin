@@ -35,6 +35,14 @@ export interface SnapshotLine {
    * pricing.Calculate.
    */
   source_pricing_entry_id?: string | null
+  source_pricing_table?: string
+  source_pricing_id?: string | null
+  registration_method?: RegistrationMethod
+  country_id?: string | null
+  country_area?: string
+  quantity?: number
+  unit_amount_cny_cents?: number | null
+  official_fee_chf_cents?: number | null
 }
 
 export interface QuotationSnapshot {
@@ -123,7 +131,7 @@ export interface QuotationHistoryResponse {
   items: QuotationHistoryEntry[]
 }
 
-export type ExportFormat = 'pdf' | 'docx'
+export type ExportFormat = 'pdf' | 'docx' | 'xlsx'
 export type ExportLanguage = 'zh' | 'en' | 'bilingual'
 
 export interface ExportFileDTO {

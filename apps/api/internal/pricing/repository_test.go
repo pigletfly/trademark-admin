@@ -205,6 +205,121 @@ func TestListActive_FiltersByTier(t *testing.T) {
 	assert.Equal(t, "standard", got[0].ServiceTier)
 }
 
+func TestReplaceActiveSingleClass_InsertsNewAndDeprecatesOld(t *testing.T) {
+	db, countryID, userID := bootstrap(t)
+	ctx := context.Background()
+	repo := pricing.NewRepository(db)
+
+	day1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	first, err := repo.ReplaceActiveSingleClass(ctx, pricing.NewSingleClassEntry{
+		CountryID:                      countryID,
+		Continent:                      "Asia",
+		CountryArea:                    "Testland",
+		FirstClassFeeCNYCents:          360000,
+		FirstClassFeeTax6CNYCents:      381600,
+		FirstClassFeeTax1CNYCents:      363600,
+		AdditionalClassFeeCNYCents:     270000,
+		AdditionalClassFeeTax6CNYCents: 286200,
+		AdditionalClassFeeTax1CNYCents: 272700,
+		RequiredDocuments:              "Power of attorney",
+		NotarizationFee:                "0",
+		AcceptanceTime:                 "2 days",
+		RegistrationMonths:             "6--8",
+		EffectiveFrom:                  day1,
+		CreatedBy:                      userID,
+	})
+	require.NoError(t, err)
+
+	second, err := repo.ReplaceActiveSingleClass(ctx, pricing.NewSingleClassEntry{
+		CountryID:                      countryID,
+		Continent:                      "Asia",
+		CountryArea:                    "Testland",
+		FirstClassFeeCNYCents:          380000,
+		FirstClassFeeTax6CNYCents:      402800,
+		FirstClassFeeTax1CNYCents:      383800,
+		AdditionalClassFeeCNYCents:     290000,
+		AdditionalClassFeeTax6CNYCents: 307400,
+		AdditionalClassFeeTax1CNYCents: 292900,
+		RequiredDocuments:              "Power of attorney",
+		NotarizationFee:                "0",
+		AcceptanceTime:                 "2 days",
+		RegistrationMonths:             "6--8",
+		EffectiveFrom:                  day2,
+		CreatedBy:                      userID,
+	})
+	require.NoError(t, err)
+
+	active, err := repo.ListActiveSingleClass(ctx, pricing.SingleClassActiveFilter{CountryID: &countryID})
+	require.NoError(t, err)
+	require.Len(t, active, 1)
+	assert.Equal(t, second.ID, active[0].ID)
+	assert.Equal(t, int64(380000), active[0].FirstClassFeeCNYCents)
+
+	gotOld, err := repo.GetSingleClassByID(ctx, first.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotOld.EffectiveTo)
+	assert.True(t, gotOld.EffectiveTo.UTC().Equal(day2.UTC()))
+}
+
+func TestReplaceActiveMadrid_VersionsBaseAndCountryRowsSeparately(t *testing.T) {
+	db, countryID, userID := bootstrap(t)
+	ctx := context.Background()
+	repo := pricing.NewRepository(db)
+
+	day1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	base, err := repo.ReplaceActiveMadrid(ctx, pricing.NewMadridEntry{
+		CountryArea:         "Basic registration fee - black and white mark",
+		OfficialFeeCHFCents: 65300,
+		AgencyFeeCNYCents:   400000,
+		IsBaseFee:           true,
+		EffectiveFrom:       day1,
+		CreatedBy:           userID,
+	})
+	require.NoError(t, err)
+	countryRow, err := repo.ReplaceActiveMadrid(ctx, pricing.NewMadridEntry{
+		CountryID:           &countryID,
+		SequenceNo:          pricingTestIntPtr(1),
+		CountryArea:         "Testland",
+		OfficialFeeCHFCents: 26100,
+		AgencyFeeCNYCents:   40000,
+		EffectiveFrom:       day1,
+		CreatedBy:           userID,
+	})
+	require.NoError(t, err)
+	updatedBase, err := repo.ReplaceActiveMadrid(ctx, pricing.NewMadridEntry{
+		CountryArea:         "Basic registration fee - black and white mark",
+		OfficialFeeCHFCents: 90300,
+		AgencyFeeCNYCents:   500000,
+		IsBaseFee:           true,
+		EffectiveFrom:       day2,
+		CreatedBy:           userID,
+	})
+	require.NoError(t, err)
+
+	active, err := repo.ListActiveMadrid(ctx, pricing.MadridActiveFilter{
+		CountryID:   &countryID,
+		IncludeBase: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, active, 2)
+	assert.Equal(t, updatedBase.ID, active[0].ID)
+	assert.True(t, active[0].IsBaseFee)
+	assert.Equal(t, countryRow.ID, active[1].ID)
+
+	gotOldBase, err := repo.GetMadridByID(ctx, base.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotOldBase.EffectiveTo)
+	assert.True(t, gotOldBase.EffectiveTo.UTC().Equal(day2.UTC()))
+}
+
+func pricingTestIntPtr(v int) *int {
+	return &v
+}
+
 // TestRepo_GetByID_ReturnsDeprecatedEntry locks in the M4 assumption
 // that GetByID does NOT filter by effective_to — historical lookup
 // needs to reach rows even after they've been deprecated by a newer

@@ -3,6 +3,7 @@ package pricing
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,6 +38,52 @@ func (h *Handler) GetActive(c *gin.Context) {
 	rows, err := h.svc.ListActive(c.Request.Context(), f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": "failed to list pricing entries"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rows})
+}
+
+// GetActiveMadrid GET /madrid-pricing-entries?country_id=...&include_base=true
+func (h *Handler) GetActiveMadrid(c *gin.Context) {
+	var f MadridActiveFilter
+	if s := c.Query("country_id"); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_QUERY", "message": "invalid country_id"})
+			return
+		}
+		f.CountryID = &id
+	}
+	if s := c.Query("include_base"); s != "" {
+		includeBase, err := strconv.ParseBool(s)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_QUERY", "message": "invalid include_base"})
+			return
+		}
+		f.IncludeBase = includeBase
+	}
+	rows, err := h.svc.ListActiveMadrid(c.Request.Context(), f)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": "failed to list madrid pricing entries"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rows})
+}
+
+// GetActiveSingleClass GET /single-class-pricing-entries?country_id=...
+func (h *Handler) GetActiveSingleClass(c *gin.Context) {
+	var f SingleClassActiveFilter
+	if s := c.Query("country_id"); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_QUERY", "message": "invalid country_id"})
+			return
+		}
+		f.CountryID = &id
+	}
+	rows, err := h.svc.ListActiveSingleClass(c.Request.Context(), f)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "ERR_INTERNAL", "message": "failed to list single class pricing entries"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": rows})
@@ -117,6 +164,46 @@ func (h *Handler) PostCreateOrReplace(c *gin.Context) {
 	c.JSON(http.StatusCreated, dto)
 }
 
+// PostCreateOrReplaceMadrid POST /madrid-pricing-entries (admin).
+func (h *Handler) PostCreateOrReplaceMadrid(c *gin.Context) {
+	var req CreateOrReplaceMadridRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	u := auth.CurrentUser(c)
+	if u.ID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "ERR_UNAUTHORIZED"})
+		return
+	}
+	dto, err := h.svc.CreateOrReplaceMadrid(c.Request.Context(), u.ID, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, dto)
+}
+
+// PostCreateOrReplaceSingleClass POST /single-class-pricing-entries (admin).
+func (h *Handler) PostCreateOrReplaceSingleClass(c *gin.Context) {
+	var req CreateOrReplaceSingleClassRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	u := auth.CurrentUser(c)
+	if u.ID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "ERR_UNAUTHORIZED"})
+		return
+	}
+	dto, err := h.svc.CreateOrReplaceSingleClass(c.Request.Context(), u.ID, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, dto)
+}
+
 // PostDeprecate POST /pricing-entries/:id/deprecate (admin).
 func (h *Handler) PostDeprecate(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -128,6 +215,56 @@ func (h *Handler) PostDeprecate(c *gin.Context) {
 	// Body is optional; ignore binding errors when body is empty.
 	_ = c.ShouldBindJSON(&req)
 	dto, err := h.svc.Deprecate(c.Request.Context(), id, req)
+	if errors.Is(err, ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"code": "ERR_NOT_FOUND"})
+		return
+	}
+	if errors.Is(err, ErrNoActive) {
+		c.JSON(http.StatusConflict, gin.H{"code": "ERR_ALREADY_DEPRECATED", "message": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
+// PostDeprecateMadrid POST /madrid-pricing-entries/:id/deprecate (admin).
+func (h *Handler) PostDeprecateMadrid(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_ID"})
+		return
+	}
+	var req DeprecateRequest
+	_ = c.ShouldBindJSON(&req)
+	dto, err := h.svc.DeprecateMadrid(c.Request.Context(), id, req)
+	if errors.Is(err, ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"code": "ERR_NOT_FOUND"})
+		return
+	}
+	if errors.Is(err, ErrNoActive) {
+		c.JSON(http.StatusConflict, gin.H{"code": "ERR_ALREADY_DEPRECATED", "message": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_BODY", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
+// PostDeprecateSingleClass POST /single-class-pricing-entries/:id/deprecate (admin).
+func (h *Handler) PostDeprecateSingleClass(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "ERR_INVALID_ID"})
+		return
+	}
+	var req DeprecateRequest
+	_ = c.ShouldBindJSON(&req)
+	dto, err := h.svc.DeprecateSingleClass(c.Request.Context(), id, req)
 	if errors.Is(err, ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"code": "ERR_NOT_FOUND"})
 		return

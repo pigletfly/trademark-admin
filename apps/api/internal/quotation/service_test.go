@@ -137,12 +137,57 @@ func (f *fakeCustomerRepo) Get(ctx context.Context, id uuid.UUID, ownerID *uuid.
 // fakePricingRepo always returns the configured entries regardless of
 // country filter.
 type fakePricingRepo struct {
-	entries []pricing.PricingEntry
-	err     error
+	entries            []pricing.PricingEntry
+	madridEntries      []pricing.MadridPricingEntry
+	singleClassEntries []pricing.SingleClassPricingEntry
+	err                error
 }
 
 func (f *fakePricingRepo) ListActive(ctx context.Context, _ *uuid.UUID) ([]pricing.PricingEntry, error) {
 	return f.entries, f.err
+}
+
+func (f *fakePricingRepo) ListActiveMadrid(ctx context.Context, filter pricing.MadridActiveFilter) ([]pricing.MadridPricingEntry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []pricing.MadridPricingEntry
+	for _, entry := range f.madridEntries {
+		if entry.EffectiveTo != nil {
+			continue
+		}
+		if entry.IsBaseFee {
+			if filter.IncludeBase {
+				out = append(out, entry)
+			}
+			continue
+		}
+		if filter.CountryID != nil {
+			if entry.CountryID != nil && *entry.CountryID == *filter.CountryID {
+				out = append(out, entry)
+			}
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+func (f *fakePricingRepo) ListActiveSingleClass(ctx context.Context, filter pricing.SingleClassActiveFilter) ([]pricing.SingleClassPricingEntry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []pricing.SingleClassPricingEntry
+	for _, entry := range f.singleClassEntries {
+		if entry.EffectiveTo != nil {
+			continue
+		}
+		if filter.CountryID != nil && entry.CountryID != *filter.CountryID {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }
 
 func newService(entries []pricing.PricingEntry) (*Service, *fakeRepo) {
@@ -695,6 +740,109 @@ func TestPreview_CarriesSourceIDs(t *testing.T) {
 	}
 	if res.Lines[0].SourcePricingEntryID == nil || *res.Lines[0].SourcePricingEntryID != entryA.ID {
 		t.Errorf("source id: want %s, got %v", entryA.ID, res.Lines[0].SourcePricingEntryID)
+	}
+}
+
+func TestPreview_UsesSingleClassPricingForSingleRegistrationMethod(t *testing.T) {
+	country := uuid.New()
+	custID := uuid.New()
+	sourceID := uuid.New()
+	pricingRepo := &fakePricingRepo{
+		singleClassEntries: []pricing.SingleClassPricingEntry{{
+			ID:                             sourceID,
+			CountryID:                      country,
+			Continent:                      "Asia",
+			CountryArea:                    "Singapore",
+			FirstClassFeeCNYCents:          360000,
+			FirstClassFeeTax6CNYCents:      381600,
+			FirstClassFeeTax1CNYCents:      363600,
+			AdditionalClassFeeCNYCents:     270000,
+			AdditionalClassFeeTax6CNYCents: 286200,
+			AdditionalClassFeeTax1CNYCents: 272700,
+		}},
+	}
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:          custID,
+		CountryID:           country,
+		NiceCategoryCodes:   []int{9, 35},
+		RegistrationMethods: []string{"single"},
+		ServiceTier:         "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if resp.TotalCNYCents != 630000 {
+		t.Fatalf("total = %d, want 630000", resp.TotalCNYCents)
+	}
+	if len(resp.Lines) != 2 {
+		t.Fatalf("lines = %d, want 2", len(resp.Lines))
+	}
+	if resp.Lines[0].RegistrationMethod != "single" || resp.Lines[0].SourcePricingTable != pricing.SingleClassPricingTable {
+		t.Fatalf("line source mismatch: %+v", resp.Lines[0])
+	}
+	if resp.Lines[0].SourcePricingID == nil || *resp.Lines[0].SourcePricingID != sourceID {
+		t.Fatalf("line source id mismatch: %+v", resp.Lines[0])
+	}
+}
+
+func TestSubmit_UsesMadridPricingForMadridRegistrationMethod(t *testing.T) {
+	country := uuid.New()
+	owner := uuid.New()
+	baseID := uuid.New()
+	countrySourceID := uuid.New()
+	svc, _ := newService(nil)
+	svc.pricingRepo = &fakePricingRepo{
+		madridEntries: []pricing.MadridPricingEntry{
+			{
+				ID:                  baseID,
+				CountryArea:         "Basic registration fee - black and white mark",
+				OfficialFeeCHFCents: 65300,
+				AgencyFeeCNYCents:   400000,
+				IsBaseFee:           true,
+			},
+			{
+				ID:                  countrySourceID,
+				CountryID:           &country,
+				CountryArea:         "Singapore",
+				OfficialFeeCHFCents: 26100,
+				AgencyFeeCNYCents:   40000,
+			},
+		},
+	}
+	q, err := svc.Create(context.Background(), owner, CreateRequest{
+		CustomerID:          uuid.New(),
+		CountryID:           country,
+		NiceCategoryCodes:   []int{9},
+		RegistrationMethods: []string{"madrid"},
+		ServiceTier:         "basic",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	submitted, err := svc.Submit(context.Background(), q.ID, owner)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if submitted.TotalCNYCents == nil || *submitted.TotalCNYCents != 1244320 {
+		t.Fatalf("total = %v, want 1244320", submitted.TotalCNYCents)
+	}
+	snap, err := submitted.DecodeSnapshot()
+	if err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if len(snap.Lines) != 4 {
+		t.Fatalf("lines = %d, want 4", len(snap.Lines))
+	}
+	if snap.Lines[2].RegistrationMethod != "madrid" || snap.Lines[2].SourcePricingTable != pricing.MadridPricingTable {
+		t.Fatalf("line source mismatch: %+v", snap.Lines[2])
+	}
+	if snap.Lines[2].SourcePricingID == nil || *snap.Lines[2].SourcePricingID != countrySourceID {
+		t.Fatalf("country source id mismatch: %+v", snap.Lines[2])
 	}
 }
 

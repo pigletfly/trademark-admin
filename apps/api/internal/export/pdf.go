@@ -22,7 +22,10 @@ func RenderHTML(v QuotationView, lang Language) ([]byte, error) {
 		return nil, fmt.Errorf("export: load template %s: %w", name, err)
 	}
 	tpl, err := template.New(name).Funcs(template.FuncMap{
-		"fmtCNY": fmtCNY,
+		"fmtCNY":      fmtCNY,
+		"fmtCNYPtr":   fmtCNYPtr,
+		"fmtCHFPtr":   fmtCHFPtr,
+		"fmtQuantity": fmtQuantity,
 	}).Parse(string(raw))
 	if err != nil {
 		return nil, fmt.Errorf("export: parse template: %w", err)

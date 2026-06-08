@@ -31,6 +31,32 @@ func (s *Service) ListActive(ctx context.Context, f ActiveFilter) ([]PricingEntr
 	return out, nil
 }
 
+// ListActiveMadrid delegates to the repository.
+func (s *Service) ListActiveMadrid(ctx context.Context, f MadridActiveFilter) ([]MadridPricingEntryDTO, error) {
+	rows, err := s.repo.ListActiveMadrid(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MadridPricingEntryDTO, len(rows))
+	for i, r := range rows {
+		out[i] = toMadridDTO(r)
+	}
+	return out, nil
+}
+
+// ListActiveSingleClass delegates to the repository.
+func (s *Service) ListActiveSingleClass(ctx context.Context, f SingleClassActiveFilter) ([]SingleClassPricingEntryDTO, error) {
+	rows, err := s.repo.ListActiveSingleClass(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SingleClassPricingEntryDTO, len(rows))
+	for i, r := range rows {
+		out[i] = toSingleClassDTO(r)
+	}
+	return out, nil
+}
+
 // ListHistory returns every version of one dimension.
 func (s *Service) ListHistory(ctx context.Context, f HistoryFilter) ([]PricingEntryDTO, error) {
 	rows, err := s.repo.ListHistory(ctx, f)
@@ -76,25 +102,122 @@ func (s *Service) CreateOrReplace(ctx context.Context, callerID uuid.UUID, req C
 	return &dto, nil
 }
 
+// CreateOrReplaceMadrid validates the request and delegates to repo.
+func (s *Service) CreateOrReplaceMadrid(ctx context.Context, callerID uuid.UUID, req CreateOrReplaceMadridRequest) (*MadridPricingEntryDTO, error) {
+	if req.CountryArea == "" {
+		return nil, errors.New("pricing: country_area required")
+	}
+	if req.OfficialFeeCHFCents < 0 || req.AgencyFeeCNYCents < 0 {
+		return nil, errors.New("pricing: amount fields must be >= 0")
+	}
+	eff, err := parseEffectiveFrom(req.EffectiveFrom)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.repo.ReplaceActiveMadrid(ctx, NewMadridEntry{
+		CountryID:           req.CountryID,
+		SequenceNo:          req.SequenceNo,
+		CountryArea:         req.CountryArea,
+		OfficialFeeCHFCents: req.OfficialFeeCHFCents,
+		AgencyFeeCNYCents:   req.AgencyFeeCNYCents,
+		IsBaseFee:           req.IsBaseFee,
+		Notes:               req.Notes,
+		EffectiveFrom:       eff,
+		CreatedBy:           callerID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	dto := toMadridDTO(*row)
+	return &dto, nil
+}
+
+// CreateOrReplaceSingleClass validates the request and delegates to repo.
+func (s *Service) CreateOrReplaceSingleClass(ctx context.Context, callerID uuid.UUID, req CreateOrReplaceSingleClassRequest) (*SingleClassPricingEntryDTO, error) {
+	if req.CountryID == uuid.Nil {
+		return nil, errors.New("pricing: country_id required")
+	}
+	if req.Continent == "" || req.CountryArea == "" {
+		return nil, errors.New("pricing: continent and country_area required")
+	}
+	if req.FirstClassFeeCNYCents < 0 ||
+		req.FirstClassFeeTax6CNYCents < 0 ||
+		req.FirstClassFeeTax1CNYCents < 0 ||
+		req.AdditionalClassFeeCNYCents < 0 ||
+		req.AdditionalClassFeeTax6CNYCents < 0 ||
+		req.AdditionalClassFeeTax1CNYCents < 0 {
+		return nil, errors.New("pricing: amount fields must be >= 0")
+	}
+	eff, err := parseEffectiveFrom(req.EffectiveFrom)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.repo.ReplaceActiveSingleClass(ctx, NewSingleClassEntry{
+		CountryID:                      req.CountryID,
+		Continent:                      req.Continent,
+		CountryArea:                    req.CountryArea,
+		FirstClassFeeCNYCents:          req.FirstClassFeeCNYCents,
+		FirstClassFeeTax6CNYCents:      req.FirstClassFeeTax6CNYCents,
+		FirstClassFeeTax1CNYCents:      req.FirstClassFeeTax1CNYCents,
+		AdditionalClassFeeCNYCents:     req.AdditionalClassFeeCNYCents,
+		AdditionalClassFeeTax6CNYCents: req.AdditionalClassFeeTax6CNYCents,
+		AdditionalClassFeeTax1CNYCents: req.AdditionalClassFeeTax1CNYCents,
+		RequiredDocuments:              req.RequiredDocuments,
+		NotarizationFee:                req.NotarizationFee,
+		AcceptanceTime:                 req.AcceptanceTime,
+		RegistrationMonths:             req.RegistrationMonths,
+		ValidityYears:                  req.ValidityYears,
+		Note1:                          req.Note1,
+		Note2:                          req.Note2,
+		EffectiveFrom:                  eff,
+		CreatedBy:                      callerID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	dto := toSingleClassDTO(*row)
+	return &dto, nil
+}
+
 // Deprecate retires a single entry.
 func (s *Service) Deprecate(ctx context.Context, id uuid.UUID, req DeprecateRequest) (*PricingEntryDTO, error) {
-	var effTo time.Time
-	if req.EffectiveTo == nil {
-		// Default: tomorrow (so it is strictly after any effective_from that
-		// could have been today).
-		effTo = time.Now().UTC().Add(24 * time.Hour).Truncate(24 * time.Hour)
-	} else {
-		t, err := time.Parse("2006-01-02", *req.EffectiveTo)
-		if err != nil {
-			return nil, fmt.Errorf("pricing: invalid effective_to: %w", err)
-		}
-		effTo = t
+	effTo, err := parseEffectiveTo(req.EffectiveTo)
+	if err != nil {
+		return nil, err
 	}
 	row, err := s.repo.Deprecate(ctx, id, effTo)
 	if err != nil {
 		return nil, err
 	}
 	dto := toDTO(*row)
+	return &dto, nil
+}
+
+// DeprecateMadrid retires a single Madrid pricing row.
+func (s *Service) DeprecateMadrid(ctx context.Context, id uuid.UUID, req DeprecateRequest) (*MadridPricingEntryDTO, error) {
+	effTo, err := parseEffectiveTo(req.EffectiveTo)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.repo.DeprecateMadrid(ctx, id, effTo)
+	if err != nil {
+		return nil, err
+	}
+	dto := toMadridDTO(*row)
+	return &dto, nil
+}
+
+// DeprecateSingleClass retires a single-filing pricing row.
+func (s *Service) DeprecateSingleClass(ctx context.Context, id uuid.UUID, req DeprecateRequest) (*SingleClassPricingEntryDTO, error) {
+	effTo, err := parseEffectiveTo(req.EffectiveTo)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.repo.DeprecateSingleClass(ctx, id, effTo)
+	if err != nil {
+		return nil, err
+	}
+	dto := toSingleClassDTO(*row)
 	return &dto, nil
 }
 
@@ -112,4 +235,23 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*PricingEntryDTO, 
 	}
 	dto := toDTO(*row)
 	return &dto, nil
+}
+
+func parseEffectiveFrom(value string) (time.Time, error) {
+	eff, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("pricing: invalid effective_from: %w", err)
+	}
+	return eff, nil
+}
+
+func parseEffectiveTo(value *string) (time.Time, error) {
+	if value == nil {
+		return time.Now().UTC().Add(24 * time.Hour).Truncate(24 * time.Hour), nil
+	}
+	eff, err := time.Parse("2006-01-02", *value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("pricing: invalid effective_to: %w", err)
+	}
+	return eff, nil
 }

@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
-import { render } from 'vitest-browser-react'
-import { userEvent } from 'vitest/browser'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
   createRouter,
@@ -9,18 +7,22 @@ import {
   createRoute,
   Outlet,
 } from '@tanstack/react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Toaster } from 'sonner'
-import { SidebarProvider } from '@/components/ui/sidebar'
-import { worker } from '@/test-utils/msw/server'
 import { resetMswState } from '@/test-utils/msw/handlers'
+import { worker } from '@/test-utils/msw/server'
+import { Toaster } from 'sonner'
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { render } from 'vitest-browser-react'
+import { userEvent } from 'vitest/browser'
 import { useAuthStore } from '@/stores/auth-store'
 import { __resetAuthInterceptorState } from '@/lib/api'
+import { SidebarProvider } from '@/components/ui/sidebar'
 import { Pricing } from '@/features/pricing'
 
 // Pre-hydrate the /auth/me cache so beforeLoad gate passes as admin.
 function buildAdminRouter() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   const admin = {
     id: '00000000-0000-0000-0000-000000000001',
     name: 'Bootstrap Admin',
@@ -69,7 +71,7 @@ describe('pricing integration', () => {
     worker.stop()
   })
 
-  it('admin can create a new pricing entry and see it in the matrix', async () => {
+  it('admin can create single class pricing and see it in the table', async () => {
     const { router, queryClient } = buildAdminRouter()
     const screen = await render(
       <QueryClientProvider client={queryClient}>
@@ -77,26 +79,101 @@ describe('pricing integration', () => {
       </QueryClientProvider>
     )
 
-    await expect.element(screen.getByRole('heading', { name: '定价管理' })).toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('heading', { name: '定价管理' }))
+      .toBeInTheDocument()
 
-    // Empty state prompt when no entries exist yet.
-    await expect.element(screen.getByText(/暂无定价条目/)).toBeInTheDocument()
+    await expect
+      .element(screen.getByText(/暂无单一分类定价/))
+      .toBeInTheDocument()
 
-    // Enter new fee_item name + click 新增条目
-    await userEvent.fill(screen.getByPlaceholder(/新费用项名称/), 'application_fee')
-    await userEvent.click(screen.getByRole('button', { name: '新增条目' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '新增单一分类定价' })
+    )
 
-    // Drawer opens with 新增 title
-    await expect.element(screen.getByText(/新增定价.*application_fee/)).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog')
+    await expect
+      .element(dialog.getByRole('heading', { name: '单一分类定价', level: 2 }))
+      .toBeInTheDocument()
 
-    // Fill amount + save
-    await userEvent.fill(screen.getByLabelText('金额（人民币元）'), '800')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    const countrySelect = dialog.getByRole('combobox', { name: '国家/地区' })
+    await userEvent.click(countrySelect)
+    await expect
+      .element(screen.getByRole('option', { name: 'Argentina · AR' }))
+      .toBeInTheDocument()
+    await userEvent.click(screen.getByRole('option', { name: 'Argentina · AR' }))
 
-    // Matrix renders the new row — scope to the table so we don't accept
-    // the string from the still-mounted drawer or toast.
-    const matrix = screen.getByRole('table')
-    await expect.element(matrix.getByText('application_fee')).toBeInTheDocument()
-    await expect.element(matrix.getByText('¥800.00')).toBeInTheDocument()
+    await userEvent.fill(dialog.getByLabelText('大洲'), '南美洲')
+    await userEvent.fill(dialog.getByLabelText('首类费用（不含税）'), '3600')
+    await userEvent.fill(dialog.getByLabelText('首类费用（含税 6%）'), '3816')
+    await userEvent.fill(dialog.getByLabelText('首类费用（含税 1%）'), '3636')
+    await userEvent.fill(dialog.getByLabelText('每次类费用（不含税）'), '2700')
+    await userEvent.fill(dialog.getByLabelText('每次类费用（含税 6%）'), '2862')
+    await userEvent.fill(dialog.getByLabelText('每次类费用（含税 1%）'), '2727')
+    await userEvent.fill(dialog.getByLabelText('受理需时'), '2 days')
+    await userEvent.fill(dialog.getByLabelText('注册需时（月）'), '6--8')
+    await userEvent.click(dialog.getByRole('button', { name: '保存' }))
+
+    const table = screen.getByRole('table')
+    await expect.element(table.getByText('Argentina')).toBeInTheDocument()
+    await expect.element(table.getByText('¥3,600.00')).toBeInTheDocument()
+  })
+
+  it('madrid base pricing drawer does not ask for a country or region', async () => {
+    const { router, queryClient } = buildAdminRouter()
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: '马德里' }))
+    await userEvent.click(screen.getByRole('button', { name: '新增基础费' }))
+
+    await expect
+      .element(screen.getByRole('heading', { name: '马德里基础费', level: 2 }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByLabelText('国家/地区'))
+      .not.toBeInTheDocument()
+  })
+
+  it('madrid country pricing drawer uses a Madrid-member country dropdown', async () => {
+    const { router, queryClient } = buildAdminRouter()
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: '马德里' }))
+    await userEvent.click(screen.getByRole('button', { name: '新增国家费' }))
+
+    const dialog = screen.getByRole('dialog')
+    await expect
+      .element(dialog.getByRole('heading', { name: '马德里国家费', level: 2 }))
+      .toBeInTheDocument()
+
+    const countrySelect = dialog.getByRole('combobox', { name: '国家/地区' })
+    await userEvent.click(countrySelect)
+
+    await expect
+      .element(screen.getByRole('option', { name: '中国 · CN' }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByRole('option', { name: 'United States · US' }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('Argentina · AR'))
+      .not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('option', { name: 'United States · US' }))
+    await userEvent.fill(dialog.getByLabelText('官费（瑞士法郎）'), '261')
+    await userEvent.fill(dialog.getByLabelText('我所代理费（人民币元）'), '400')
+    await userEvent.click(dialog.getByRole('button', { name: '保存' }))
+
+    const table = screen.getByRole('table')
+    await expect.element(table.getByText('United States')).toBeInTheDocument()
+    await expect.element(table.getByText('CHF 261.00')).toBeInTheDocument()
   })
 })

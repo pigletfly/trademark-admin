@@ -1,7 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import type { QuotationStatus } from '../types'
-import { QUOTATION_STATUS_LABEL_ZH } from '../types'
+import { QUOTATION_STATUS_LABEL_ZH, type QuotationStatus } from '../types'
 
 const VARIANT: Record<QuotationStatus, string> = {
   draft: 'bg-muted text-muted-foreground',

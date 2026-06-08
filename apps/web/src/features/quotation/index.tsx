@@ -14,8 +14,7 @@ import {
 import { useQuotationsList } from './hooks'
 import { quotationColumns } from './components/quotations-columns'
 import { QuotationsTable } from './components/quotations-table'
-import type { QuotationStatus } from './types'
-import { QUOTATION_STATUS_LABEL_ZH } from './types'
+import { QUOTATION_STATUS_LABEL_ZH, type QuotationStatus } from './types'
 
 type QuotationsSearch = {
   status?: QuotationStatus

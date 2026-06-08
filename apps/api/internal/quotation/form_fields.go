@@ -135,6 +135,18 @@ func quotationCountryIDs(q *Quotation) []uuid.UUID {
 	return ids
 }
 
+func quotationNiceCategoryCodes(q *Quotation) []int {
+	return decodeJSONB[int](q.NiceCategoryCodes)
+}
+
+func quotationRegistrationMethods(q *Quotation) []string {
+	methods := decodeJSONB[string](q.RegistrationMethods)
+	if len(methods) == 0 {
+		return []string{"single"}
+	}
+	return methods
+}
+
 func applyQuotationFormDefaults(q *Quotation) error {
 	if len(q.CountryIDs) == 0 {
 		countryIDs, err := normalizeCountryIDs(q.CountryID, nil)

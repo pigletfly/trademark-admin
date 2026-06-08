@@ -8,11 +8,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type {
-  PricingEntry,
-  ServiceTier,
+import {
+  SERVICE_TIERS,
+  SERVICE_TIER_LABEL_ZH,
+  type PricingEntry,
+  type ServiceTier,
 } from '../types'
-import { SERVICE_TIERS, SERVICE_TIER_LABEL_ZH } from '../types'
 
 export interface MatrixCell {
   feeItem: string

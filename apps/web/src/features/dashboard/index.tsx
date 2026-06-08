@@ -9,8 +9,10 @@ import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
-import type { QuotationStatus } from '@/features/quotation/types'
-import { QUOTATION_STATUS_LABEL_ZH } from '@/features/quotation/types'
+import {
+  QUOTATION_STATUS_LABEL_ZH,
+  type QuotationStatus,
+} from '@/features/quotation/types'
 import { useDashboardSummary } from './hooks/use-dashboard'
 import { KPICard } from './components/kpi-card'
 import { RecentQuotations } from './components/recent-quotations'

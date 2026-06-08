@@ -13,6 +13,7 @@ type Format string
 const (
 	FormatPDF  Format = "pdf"
 	FormatDOCX Format = "docx"
+	FormatXLSX Format = "xlsx"
 )
 
 // Language enumerates the UI language of the rendered document.

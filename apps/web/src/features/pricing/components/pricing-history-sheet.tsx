@@ -6,8 +6,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
-import type { ServiceTier } from '../types'
-import { SERVICE_TIER_LABEL_ZH } from '../types'
+import { SERVICE_TIER_LABEL_ZH, type ServiceTier } from '../types'
 import { formatCNY } from './pricing-matrix'
 import { usePricingHistory } from '../hooks'
 

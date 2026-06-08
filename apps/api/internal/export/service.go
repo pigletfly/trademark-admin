@@ -94,6 +94,21 @@ func (s *Service) GenerateDOCX(
 	return s.writeAndRecord(ctx, qid, actorID, FormatDOCX, lang, bytes.NewReader(buf.Bytes()))
 }
 
+// GenerateXLSX renders a spreadsheet workbook, writes it to storage,
+// and records metadata.
+func (s *Service) GenerateXLSX(
+	ctx context.Context,
+	view QuotationView,
+	lang Language,
+	qid, actorID uuid.UUID,
+) (*ExportFile, error) {
+	xlsx, err := RenderXLSX(view)
+	if err != nil {
+		return nil, err
+	}
+	return s.writeAndRecord(ctx, qid, actorID, FormatXLSX, lang, bytes.NewReader(xlsx))
+}
+
 // writeAndRecord is the common tail of GeneratePDF/GenerateDOCX.
 func (s *Service) writeAndRecord(
 	ctx context.Context,

@@ -21,8 +21,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import type { PricingEntry, ServiceTier } from '../types'
-import { SERVICE_TIER_LABEL_ZH } from '../types'
+import {
+  SERVICE_TIER_LABEL_ZH,
+  type PricingEntry,
+  type ServiceTier,
+} from '../types'
 import { useCreateOrReplacePricing, useDeprecatePricing } from '../hooks'
 
 // amount in 元 (e.g. 120.50), converted to cents on submit

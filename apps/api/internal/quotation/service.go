@@ -44,6 +44,8 @@ type repo interface {
 // the service can compute the submit-time snapshot.
 type pricingRepo interface {
 	ListActive(ctx context.Context, countryID *uuid.UUID) ([]pricing.PricingEntry, error)
+	ListActiveMadrid(ctx context.Context, f pricing.MadridActiveFilter) ([]pricing.MadridPricingEntry, error)
+	ListActiveSingleClass(ctx context.Context, f pricing.SingleClassActiveFilter) ([]pricing.SingleClassPricingEntry, error)
 }
 
 // customerRepo is the subset of customer.Repository we need for the
@@ -254,7 +256,13 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 		return nil, ErrInvalidTransition
 	}
 
-	snap, err := s.calculateSnapshot(ctx, quotationCountryIDs(q), q.ServiceTier)
+	snap, err := s.calculateSnapshot(
+		ctx,
+		quotationCountryIDs(q),
+		q.ServiceTier,
+		quotationRegistrationMethods(q),
+		len(quotationNiceCategoryCodes(q)),
+	)
 	if err != nil {
 		if errors.Is(err, pricing.ErrNoMatchingEntries) {
 			return nil, ErrMissingPricing
@@ -279,11 +287,41 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 	return q, nil
 }
 
-func (s *Service) calculateSnapshot(ctx context.Context, countryIDs []uuid.UUID, serviceTier string) (Snapshot, error) {
+func (s *Service) calculateSnapshot(
+	ctx context.Context,
+	countryIDs []uuid.UUID,
+	serviceTier string,
+	registrationMethods []string,
+	niceCategoryCount int,
+) (Snapshot, error) {
 	var snap Snapshot
 	if len(countryIDs) == 0 {
 		return snap, ErrInvalidFormInput
 	}
+	methodSet, err := s.loadMethodPricing(ctx, countryIDs, registrationMethods)
+	if err != nil {
+		return snap, err
+	}
+	if hasMethodPricing(methodSet) {
+		calc, err := pricing.CalculateMethodPricing(methodSet, pricing.MethodCalcInput{
+			CountryIDs:          countryIDs,
+			RegistrationMethods: registrationMethods,
+			NiceCategoryCount:   niceCategoryCount,
+		})
+		if err != nil {
+			if errors.Is(err, pricing.ErrNoMatchingEntries) {
+				return snap, ErrMissingPricing
+			}
+			return snap, fmt.Errorf("quotation: method pricing calculate: %w", err)
+		}
+		for _, line := range calc.Lines {
+			snap.Lines = append(snap.Lines, calcLineToSnapshotLine(line))
+		}
+		snap.TotalCNYCents = calc.TotalCNYCents
+		snap.Signature = calc.Signature
+		return snap, nil
+	}
+
 	for _, countryID := range countryIDs {
 		entries, err := s.pricingRepo.ListActive(ctx, &countryID)
 		if err != nil {
@@ -301,11 +339,9 @@ func (s *Service) calculateSnapshot(ctx context.Context, countryIDs []uuid.UUID,
 		}
 		for _, l := range calc.Lines {
 			sourceID := l.SourcePricingEntryID
-			snap.Lines = append(snap.Lines, SnapshotLine{
-				FeeItem:              l.FeeItem,
-				AmountCNYCents:       l.AmountCNYCents,
-				SourcePricingEntryID: &sourceID,
-			})
+			line := calcLineToSnapshotLine(l)
+			line.SourcePricingEntryID = &sourceID
+			snap.Lines = append(snap.Lines, line)
 		}
 		snap.TotalCNYCents += calc.TotalCNYCents
 		if len(countryIDs) == 1 {
@@ -316,6 +352,59 @@ func (s *Service) calculateSnapshot(ctx context.Context, countryIDs []uuid.UUID,
 		snap.Signature = computeQuotationSignature(countryIDs, serviceTier, snap.Lines, snap.TotalCNYCents)
 	}
 	return snap, nil
+}
+
+func (s *Service) loadMethodPricing(ctx context.Context, countryIDs []uuid.UUID, registrationMethods []string) (pricing.MethodPricingSet, error) {
+	var set pricing.MethodPricingSet
+	methods, err := normalizeRegistrationMethods(registrationMethods)
+	if err != nil {
+		return set, err
+	}
+	for _, method := range methods {
+		switch method {
+		case pricing.RegistrationMethodMadrid:
+			for _, countryID := range countryIDs {
+				rows, err := s.pricingRepo.ListActiveMadrid(ctx, pricing.MadridActiveFilter{
+					CountryID:   &countryID,
+					IncludeBase: true,
+				})
+				if err != nil {
+					return set, err
+				}
+				set.Madrid = append(set.Madrid, rows...)
+			}
+		case pricing.RegistrationMethodSingle:
+			for _, countryID := range countryIDs {
+				rows, err := s.pricingRepo.ListActiveSingleClass(ctx, pricing.SingleClassActiveFilter{
+					CountryID: &countryID,
+				})
+				if err != nil {
+					return set, err
+				}
+				set.SingleClass = append(set.SingleClass, rows...)
+			}
+		}
+	}
+	return set, nil
+}
+
+func hasMethodPricing(set pricing.MethodPricingSet) bool {
+	return len(set.Madrid) > 0 || len(set.SingleClass) > 0
+}
+
+func calcLineToSnapshotLine(line pricing.CalcLine) SnapshotLine {
+	return SnapshotLine{
+		FeeItem:             line.FeeItem,
+		AmountCNYCents:      line.AmountCNYCents,
+		SourcePricingTable:  line.SourcePricingTable,
+		SourcePricingID:     line.SourcePricingID,
+		RegistrationMethod:  line.RegistrationMethod,
+		CountryID:           line.CountryID,
+		CountryArea:         line.CountryArea,
+		Quantity:            line.Quantity,
+		UnitAmountCNYCents:  line.UnitAmountCNYCents,
+		OfficialFeeCHFCents: line.OfficialFeeCHFCents,
+	}
 }
 
 // Approve / Reject are reviewer transitions. They do NOT recompute the
@@ -531,6 +620,14 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 	if err != nil {
 		return nil, err
 	}
+	niceCodes, err := normalizeNiceCategoryCodes(req.NiceCategoryCodes)
+	if err != nil {
+		return nil, err
+	}
+	registrationMethods, err := normalizeRegistrationMethods(req.RegistrationMethods)
+	if err != nil {
+		return nil, err
+	}
 	cust, err := s.customerRepo.Get(ctx, req.CustomerID, nil)
 	if err != nil {
 		if errors.Is(err, customer.ErrNotFound) {
@@ -542,7 +639,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 		return nil, ErrNotFound
 	}
 
-	snap, err := s.calculateSnapshot(ctx, countryIDs, req.ServiceTier)
+	snap, err := s.calculateSnapshot(ctx, countryIDs, req.ServiceTier, registrationMethods, len(niceCodes))
 	if err != nil {
 		if errors.Is(err, ErrMissingPricing) {
 			return nil, ErrMissingPricing

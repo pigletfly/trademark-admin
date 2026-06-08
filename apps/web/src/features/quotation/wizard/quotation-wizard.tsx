@@ -106,6 +106,8 @@ export function QuotationWizard({ mode }: Props) {
     customer_id: draft.customer_id,
     country_id: primaryCountryId,
     country_ids: draft.country_ids,
+    nice_category_codes: draft.nice_category_codes,
+    registration_methods: draft.registration_methods,
     service_tier: serviceTier,
   })
   const isEdit = state.editingId !== null

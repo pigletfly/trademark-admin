@@ -21,9 +21,17 @@ type CalcInput struct {
 // is the ID of the PricingEntry row this line was derived from — lets
 // downstream snapshot consumers trace the line back for audit.
 type CalcLine struct {
-	FeeItem              string    `json:"fee_item"`
-	AmountCNYCents       int64     `json:"amount_cny_cents"`
-	SourcePricingEntryID uuid.UUID `json:"source_pricing_entry_id"`
+	FeeItem              string     `json:"fee_item"`
+	AmountCNYCents       int64      `json:"amount_cny_cents"`
+	SourcePricingEntryID uuid.UUID  `json:"source_pricing_entry_id"`
+	SourcePricingTable   string     `json:"source_pricing_table,omitempty"`
+	SourcePricingID      *uuid.UUID `json:"source_pricing_id,omitempty"`
+	RegistrationMethod   string     `json:"registration_method,omitempty"`
+	CountryID            *uuid.UUID `json:"country_id,omitempty"`
+	CountryArea          string     `json:"country_area,omitempty"`
+	Quantity             int        `json:"quantity,omitempty"`
+	UnitAmountCNYCents   *int64     `json:"unit_amount_cny_cents,omitempty"`
+	OfficialFeeCHFCents  *int64     `json:"official_fee_chf_cents,omitempty"`
 }
 
 // CalcResult is the deterministic output of Calculate.

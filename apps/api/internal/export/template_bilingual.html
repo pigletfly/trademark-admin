@@ -39,18 +39,28 @@
 <h2>2. 报价明细 / Fee Breakdown</h2>
 <table>
   <thead><tr>
+    <th>注册方式 Method</th>
+    <th>国家/地区 Country/Region</th>
     <th>费用项 Fee Item</th>
+    <th class="right">数量 Qty</th>
+    <th class="right">单价 Unit (CNY)</th>
+    <th class="right">官费 Official (CHF)</th>
     <th class="right">金额 Amount (CNY)</th>
   </tr></thead>
   <tbody>
     {{range .Lines}}
     <tr>
+      <td>{{.RegistrationMethod}}</td>
+      <td>{{.CountryArea}}</td>
       <td>{{.FeeItem}}</td>
+      <td class="right">{{fmtQuantity .Quantity}}</td>
+      <td class="right">{{fmtCNYPtr .UnitAmountCNYCents}}</td>
+      <td class="right">{{fmtCHFPtr .OfficialFeeCHFCents}}</td>
       <td class="right">{{fmtCNY .AmountCNYCents}}</td>
     </tr>
     {{end}}
     <tr class="total">
-      <td>合计 Total</td>
+      <td colspan="6">合计 Total</td>
       <td class="right">{{fmtCNY .TotalCNYCents}}</td>
     </tr>
   </tbody>

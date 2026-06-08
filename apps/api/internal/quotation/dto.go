@@ -57,6 +57,14 @@ type SnapshotLine struct {
 	FeeItem              string     `json:"fee_item"`
 	AmountCNYCents       int64      `json:"amount_cny_cents"`
 	SourcePricingEntryID *uuid.UUID `json:"source_pricing_entry_id,omitempty"`
+	SourcePricingTable   string     `json:"source_pricing_table,omitempty"`
+	SourcePricingID      *uuid.UUID `json:"source_pricing_id,omitempty"`
+	RegistrationMethod   string     `json:"registration_method,omitempty"`
+	CountryID            *uuid.UUID `json:"country_id,omitempty"`
+	CountryArea          string     `json:"country_area,omitempty"`
+	Quantity             int        `json:"quantity,omitempty"`
+	UnitAmountCNYCents   *int64     `json:"unit_amount_cny_cents,omitempty"`
+	OfficialFeeCHFCents  *int64     `json:"official_fee_chf_cents,omitempty"`
 }
 
 // Snapshot is what's persisted in snapshot_json. Signature + total live
@@ -110,10 +118,12 @@ type HistoryEntry struct {
 // Validation tags mirror CreateRequest so bad bodies are rejected before
 // reaching the service.
 type PreviewRequest struct {
-	CustomerID  uuid.UUID   `json:"customer_id"  binding:"required"`
-	CountryID   uuid.UUID   `json:"country_id"   binding:"required"`
-	CountryIDs  []uuid.UUID `json:"country_ids,omitempty"`
-	ServiceTier string      `json:"service_tier" binding:"required"`
+	CustomerID          uuid.UUID   `json:"customer_id"  binding:"required"`
+	CountryID           uuid.UUID   `json:"country_id"   binding:"required"`
+	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
+	RegistrationMethods []string    `json:"registration_methods,omitempty"`
+	ServiceTier         string      `json:"service_tier" binding:"required"`
 }
 
 // PreviewResponse is the shape returned by POST /quotations/preview.
