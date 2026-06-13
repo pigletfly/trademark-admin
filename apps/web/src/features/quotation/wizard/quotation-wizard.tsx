@@ -29,12 +29,21 @@ import { useCountries } from '@/features/catalog/hooks/use-countries'
 import { useNiceCategories } from '@/features/catalog/hooks/use-nice-categories'
 import { useCustomersList } from '@/features/customers/hooks'
 import {
+  hasSelectedCountries,
+  selectedRegistrationMethods,
+  uniqueCountryIds,
+} from '../method-country-selection'
+import {
   useCreateAndSubmit,
   useCreateQuotation,
   useUpdateAndSubmit,
   useUpdateQuotationDraft,
 } from '../hooks/use-quotation-mutations'
-import type { AgentLevel, QuoteInfoSection, RegistrationMethod } from '../types'
+import type {
+  AgentLevel,
+  CreateQuotationRequest,
+  QuoteInfoSection,
+} from '../types'
 import { CountryMultiSelect } from './country-multi-select'
 import { usePreview } from './hooks/use-preview'
 import { NiceClassMultiSelect } from './nice-class-multi-select'
@@ -56,15 +65,6 @@ function getWizardStoreForUser(userId: string) {
 interface Props {
   mode: 'create' | 'edit'
 }
-
-const REGISTRATION_METHOD_OPTIONS: {
-  value: RegistrationMethod
-  label: string
-  description: string
-}[] = [
-  { value: 'madrid', label: '马德里', description: 'Madrid system' },
-  { value: 'single', label: '单一分类', description: 'Single filing' },
-]
 
 const AGENT_LEVEL_OPTIONS: {
   value: AgentLevel
@@ -100,14 +100,27 @@ export function QuotationWizard({ mode }: Props) {
   const updateSubmitMut = useUpdateAndSubmit()
 
   const draft = normalizeDraft(state.draft)
-  const primaryCountryId = draft.country_ids[0] ?? ''
+  const methodCountrySelection = {
+    madrid_country_ids: draft.madrid_country_ids,
+    single_country_ids: draft.single_country_ids,
+  }
+  const countryIds = uniqueCountryIds(methodCountrySelection)
+  const primaryCountryId = countryIds[0] ?? ''
+  const registrationMethods =
+    selectedRegistrationMethods(methodCountrySelection)
   const serviceTier = serviceTierForAgentLevel(draft.agent_level)
+  const madridCountries = useMemo(
+    () => (countries.data ?? []).filter((country) => country.is_madrid_member),
+    [countries.data]
+  )
   const preview = usePreview({
     customer_id: draft.customer_id,
     country_id: primaryCountryId,
-    country_ids: draft.country_ids,
+    country_ids: countryIds,
+    madrid_country_ids: draft.madrid_country_ids,
+    single_country_ids: draft.single_country_ids,
     nice_category_codes: draft.nice_category_codes,
-    registration_methods: draft.registration_methods,
+    registration_methods: registrationMethods,
     service_tier: serviceTier,
   })
   const isEdit = state.editingId !== null
@@ -118,27 +131,12 @@ export function QuotationWizard({ mode }: Props) {
     updateSubmitMut.isPending
   const isFormValid =
     draft.customer_id.length > 0 &&
-    draft.country_ids.length > 0 &&
+    hasSelectedCountries(methodCountrySelection) &&
     draft.nice_category_codes.length > 0 &&
-    draft.registration_methods.length > 0
+    registrationMethods.length > 0
   const canSave = isFormValid && preview.isSuccess && !busy
 
-  const body = useMemo(
-    () => ({
-      customer_id: draft.customer_id,
-      country_id: primaryCountryId,
-      country_ids: draft.country_ids,
-      nice_category_codes: draft.nice_category_codes,
-      registration_methods: REGISTRATION_METHOD_OPTIONS.map(
-        (option) => option.value
-      ).filter((value) => draft.registration_methods.includes(value)),
-      agent_level: draft.agent_level,
-      service_tier: serviceTier,
-      info_sections: draft.info_sections,
-      notes: draft.notes.trim() ? draft.notes.trim() : null,
-    }),
-    [draft, primaryCountryId, serviceTier]
-  )
+  const body = useMemo(() => buildQuotationRequest(draft), [draft])
 
   const saveDraft = async () => {
     if (isEdit && state.editingId) {
@@ -220,40 +218,41 @@ export function QuotationWizard({ mode }: Props) {
                 </section>
 
                 <section className='grid gap-3'>
-                  <Label htmlFor='quotation-countries'>国家 / Countries</Label>
+                  <Label htmlFor='quotation-madrid-countries'>
+                    马德里注册 / Madrid Registration
+                  </Label>
                   <CountryMultiSelect
-                    id='quotation-countries'
-                    countries={countries.data ?? []}
-                    value={draft.country_ids}
+                    id='quotation-madrid-countries'
+                    ariaLabel='Madrid registration countries'
+                    placeholder='Select Madrid countries'
+                    countries={madridCountries}
+                    value={draft.madrid_country_ids}
                     loading={countries.isLoading}
                     onValueChange={(ids) =>
-                      state.patchDraft({ country_ids: ids })
+                      state.patchDraft({ madrid_country_ids: ids })
+                    }
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    仅显示支持马德里注册的国家。
+                  </p>
+                </section>
+
+                <section className='grid gap-3'>
+                  <Label htmlFor='quotation-single-countries'>
+                    单一注册 / Single Filing
+                  </Label>
+                  <CountryMultiSelect
+                    id='quotation-single-countries'
+                    ariaLabel='Single filing countries'
+                    placeholder='Select single-filing countries'
+                    countries={countries.data ?? []}
+                    value={draft.single_country_ids}
+                    loading={countries.isLoading}
+                    onValueChange={(ids) =>
+                      state.patchDraft({ single_country_ids: ids })
                     }
                   />
                 </section>
-
-                <MultiCheckSection title='注册方式 / Registration Methods'>
-                  {REGISTRATION_METHOD_OPTIONS.map((option) => (
-                    <CheckboxRow
-                      key={option.value}
-                      id={`registration-method-${option.value}`}
-                      checked={draft.registration_methods.includes(
-                        option.value
-                      )}
-                      label={option.label}
-                      description={option.description}
-                      onCheckedChange={(checked) =>
-                        state.patchDraft({
-                          registration_methods: toggleValue(
-                            draft.registration_methods,
-                            option.value,
-                            checked
-                          ),
-                        })
-                      }
-                    />
-                  ))}
-                </MultiCheckSection>
 
                 <section className='grid gap-3'>
                   <Label>代理级别 / Agent Level</Label>
@@ -419,13 +418,13 @@ function PreviewPanel({
       <div>
         <h3 className='font-medium'>报价预览 / Preview</h3>
         <p className='text-sm text-muted-foreground'>
-          合计会随客户、国家和代理级别自动更新。
+          合计会随客户、国家、注册方式和代理级别自动更新。
         </p>
       </div>
       <Separator />
       {!isFormValid && (
         <p className='text-sm text-muted-foreground'>
-          请选择客户、商标类别、国家和注册方式。
+          请选择客户、商标类别，且至少选择一种注册方式的国家。
         </p>
       )}
       {isFormValid && preview.isLoading && (
@@ -511,13 +510,34 @@ function toggleValue<T>(values: T[], value: T, checked: boolean): T[] {
 function normalizeDraft(draft: WizardState['draft']): WizardState['draft'] {
   return {
     ...draft,
-    country_ids: draft.country_ids ?? [],
+    madrid_country_ids: draft.madrid_country_ids ?? [],
+    single_country_ids: draft.single_country_ids ?? [],
     nice_category_codes: draft.nice_category_codes ?? [],
-    registration_methods: draft.registration_methods?.length
-      ? draft.registration_methods
-      : ['single'],
     agent_level: draft.agent_level ?? 'agent_a',
     info_sections: draft.info_sections ?? [],
+  }
+}
+
+export function buildQuotationRequest(
+  draft: WizardState['draft']
+): CreateQuotationRequest {
+  const methodCountrySelection = {
+    madrid_country_ids: draft.madrid_country_ids ?? [],
+    single_country_ids: draft.single_country_ids ?? [],
+  }
+  const countryIds = uniqueCountryIds(methodCountrySelection)
+  return {
+    customer_id: draft.customer_id,
+    country_id: countryIds[0] ?? '',
+    country_ids: countryIds,
+    madrid_country_ids: methodCountrySelection.madrid_country_ids,
+    single_country_ids: methodCountrySelection.single_country_ids,
+    nice_category_codes: draft.nice_category_codes ?? [],
+    registration_methods: selectedRegistrationMethods(methodCountrySelection),
+    agent_level: draft.agent_level,
+    service_tier: serviceTierForAgentLevel(draft.agent_level),
+    info_sections: draft.info_sections,
+    notes: draft.notes.trim() ? draft.notes.trim() : null,
   }
 }
 

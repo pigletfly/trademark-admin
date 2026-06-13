@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type QuotationView struct {
 	Status           string
 	ServiceTier      string
 	CustomerName     string
+	Countries        []CountryView
+	MadridCountries  []CountryView
+	SingleCountries  []CountryView
 	CountryNameZH    string
 	CountryNameEN    string
 	CountryCode      string
@@ -31,6 +35,12 @@ type QuotationView struct {
 	GeneratedAt      time.Time
 }
 
+type CountryView struct {
+	Code   string
+	NameZH string
+	NameEN string
+}
+
 // ExportLine is one priced fee item from the quotation snapshot.
 type ExportLine struct {
 	FeeItem             string
@@ -40,6 +50,20 @@ type ExportLine struct {
 	UnitAmountCNYCents  *int64
 	OfficialFeeCHFCents *int64
 	AmountCNYCents      int64
+}
+
+func (v QuotationView) allCountries() []CountryView {
+	if len(v.Countries) > 0 {
+		return v.Countries
+	}
+	if v.CountryCode == "" && v.CountryNameZH == "" && v.CountryNameEN == "" {
+		return nil
+	}
+	return []CountryView{{
+		Code:   v.CountryCode,
+		NameZH: v.CountryNameZH,
+		NameEN: v.CountryNameEN,
+	}}
 }
 
 // RenderDOCX writes a .docx file's bytes to w. Format is bilingual —
@@ -104,7 +128,13 @@ func renderBody(v QuotationView) (string, error) {
 
 	heading(&b, "1. 基本信息 / Basic Info", 20, false)
 	kv(&b, "客户 / Customer", v.CustomerName)
-	kv(&b, "国家 / Country", fmt.Sprintf("%s %s / %s", v.CountryCode, v.CountryNameZH, v.CountryNameEN))
+	kv(&b, "国家 / Countries", fmtCountryListBilingual(v.allCountries()))
+	if len(v.MadridCountries) > 0 {
+		kv(&b, "马德里注册 / Madrid Registration", fmtCountryListBilingual(v.MadridCountries))
+	}
+	if len(v.SingleCountries) > 0 {
+		kv(&b, "单一注册 / Single Filing", fmtCountryListBilingual(v.SingleCountries))
+	}
 	kv(&b, "服务级别 / Service Tier", v.ServiceTier)
 	kv(&b, "状态 / Status", v.Status)
 	if v.SubmittedAt != nil {
@@ -238,6 +268,90 @@ func fmtQuantity(quantity int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", quantity)
+}
+
+func fmtCountryListBilingual(countries []CountryView) string {
+	return joinCountryViews(countries, formatCountryBilingual, "、")
+}
+
+func fmtCountryListZH(countries []CountryView) string {
+	return joinCountryViews(countries, formatCountryZH, "、")
+}
+
+func fmtCountryListEN(countries []CountryView) string {
+	return joinCountryViews(countries, formatCountryEN, "; ")
+}
+
+func joinCountryViews(
+	countries []CountryView,
+	formatter func(CountryView) string,
+	separator string,
+) string {
+	parts := make([]string, 0, len(countries))
+	for _, country := range countries {
+		value := formatter(country)
+		if value == "" {
+			continue
+		}
+		parts = append(parts, value)
+	}
+	return strings.Join(parts, separator)
+}
+
+func formatCountryBilingual(country CountryView) string {
+	label := formatCountryNames(country.NameZH, country.NameEN, " / ")
+	switch {
+	case country.Code != "" && label != "":
+		return fmt.Sprintf("%s %s", country.Code, label)
+	case label != "":
+		return label
+	default:
+		return country.Code
+	}
+}
+
+func formatCountryZH(country CountryView) string {
+	name := firstNonEmpty(country.NameZH, country.NameEN)
+	switch {
+	case country.Code != "" && name != "":
+		return fmt.Sprintf("%s — %s", country.Code, name)
+	case name != "":
+		return name
+	default:
+		return country.Code
+	}
+}
+
+func formatCountryEN(country CountryView) string {
+	name := firstNonEmpty(country.NameEN, country.NameZH)
+	switch {
+	case country.Code != "" && name != "":
+		return fmt.Sprintf("%s — %s", country.Code, name)
+	case name != "":
+		return name
+	default:
+		return country.Code
+	}
+}
+
+func formatCountryNames(primary, secondary, separator string) string {
+	switch {
+	case primary != "" && secondary != "" && primary != secondary:
+		return primary + separator + secondary
+	case primary != "":
+		return primary
+	default:
+		return secondary
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // humanMoney formats 1234567.89 as "1,234,567.89".

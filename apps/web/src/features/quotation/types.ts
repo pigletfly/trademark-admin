@@ -56,6 +56,8 @@ export interface Quotation {
   customer_id: string
   country_id: string
   country_ids?: string[]
+  madrid_country_ids?: string[]
+  single_country_ids?: string[]
   nice_category_codes?: number[]
   registration_methods?: RegistrationMethod[]
   agent_level?: AgentLevel
@@ -80,6 +82,8 @@ export interface CreateQuotationRequest {
   customer_id: string
   country_id: string
   country_ids?: string[]
+  madrid_country_ids?: string[]
+  single_country_ids?: string[]
   nice_category_codes?: number[]
   registration_methods?: RegistrationMethod[]
   agent_level?: AgentLevel
@@ -92,6 +96,8 @@ export interface UpdateDraftRequest {
   customer_id?: string
   country_id?: string
   country_ids?: string[]
+  madrid_country_ids?: string[]
+  single_country_ids?: string[]
   nice_category_codes?: number[]
   registration_methods?: RegistrationMethod[]
   agent_level?: AgentLevel

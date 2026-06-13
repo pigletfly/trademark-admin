@@ -27,7 +27,9 @@
 <h2>1. Basic Info</h2>
 <table class="kv">
   <tr><td>Customer</td><td>{{.CustomerName}}</td></tr>
-  <tr><td>Country</td><td>{{.CountryCode}} — {{.CountryNameEN}}</td></tr>
+  <tr><td>Countries</td><td>{{fmtCountryListEN .Countries}}</td></tr>
+  {{if .MadridCountries}}<tr><td>Madrid Registration</td><td>{{fmtCountryListEN .MadridCountries}}</td></tr>{{end}}
+  {{if .SingleCountries}}<tr><td>Single Filing</td><td>{{fmtCountryListEN .SingleCountries}}</td></tr>{{end}}
   <tr><td>Service Tier</td><td>{{.ServiceTier}}</td></tr>
   <tr><td>Status</td><td>{{.Status}}</td></tr>
   {{if .SubmittedAt}}<tr><td>Submitted</td><td>{{.SubmittedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}

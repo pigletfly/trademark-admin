@@ -7,6 +7,8 @@ export interface PreviewRequest {
   customer_id: string
   country_id: string
   country_ids?: string[]
+  madrid_country_ids?: string[]
+  single_country_ids?: string[]
   nice_category_codes?: number[]
   registration_methods?: RegistrationMethod[]
   service_tier: ServiceTier

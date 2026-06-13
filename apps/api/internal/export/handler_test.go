@@ -197,6 +197,116 @@ func TestExportDOCX_HappyPath_ReturnsZipWithChineseCustomerName(t *testing.T) {
 	}
 }
 
+func TestExportDOCX_IncludesSeparateMethodCountryGroups(t *testing.T) {
+	db := bootPg(t)
+	gin.SetMode(gin.TestMode)
+
+	var roleIDStr string
+	_ = db.Raw(`SELECT id FROM roles WHERE code = 'admin'`).Scan(&roleIDStr).Error
+	roleID, _ := uuid.Parse(roleIDStr)
+	userID := uuid.New()
+	_ = db.Exec(`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		userID, "Admin", "admin@ex.com", "x", roleID).Error
+	custID := uuid.New()
+	_ = db.Exec(`INSERT INTO customers (id, name, created_by) VALUES (?, ?, ?)`,
+		custID, "Acme 有限公司", userID).Error
+	usID := uuid.New()
+	arID := uuid.New()
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		usID, "US", "美国", "United States").Error
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		arID, "AR", "阿根廷", "Argentina").Error
+
+	snap := map[string]any{
+		"lines": []map[string]any{
+			{
+				"fee_item":            "Madrid designated country official fee",
+				"amount_cny_cents":    105600,
+				"registration_method": "madrid",
+				"country_id":          usID.String(),
+				"country_area":        "United States",
+			},
+			{
+				"fee_item":            "Single filing first class fee",
+				"amount_cny_cents":    280000,
+				"registration_method": "single",
+				"country_id":          arID.String(),
+				"country_area":        "Argentina",
+			},
+		},
+		"total_cny_cents": 385600,
+		"signature":       "sig-methods",
+	}
+	snapJSON, _ := json.Marshal(snap)
+	countryIDsJSON, _ := json.Marshal([]string{usID.String(), arID.String()})
+	madridCountryIDsJSON, _ := json.Marshal([]string{usID.String()})
+	singleCountryIDsJSON, _ := json.Marshal([]string{arID.String()})
+	registrationMethodsJSON, _ := json.Marshal([]string{"madrid", "single"})
+	total := int64(385600)
+	submitted := time.Now().Add(-2 * time.Hour)
+	reviewed := time.Now().Add(-1 * time.Hour)
+
+	qID := uuid.New()
+	_ = db.Exec(`INSERT INTO quotations
+		(id, customer_id, country_id, country_ids, madrid_country_ids, single_country_ids, registration_methods, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
+		VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qID,
+		custID,
+		usID,
+		string(countryIDsJSON),
+		string(madridCountryIDsJSON),
+		string(singleCountryIDsJSON),
+		string(registrationMethodsJSON),
+		string(snapJSON),
+		total,
+		"sig-methods",
+		"Q202604260002",
+		submitted,
+		reviewed,
+		userID,
+		userID,
+	).Error
+
+	r := buildRouter(t, db, userID, "admin")
+	req := httptest.NewRequest("GET",
+		"/api/v1/quotations/"+qID.String()+"/export.docx", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body %s", w.Code, w.Body.String())
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip: %v", err)
+	}
+	var doc string
+	for _, f := range zr.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, _ := f.Open()
+		raw, _ := io.ReadAll(rc)
+		rc.Close()
+		doc = string(raw)
+		break
+	}
+	if doc == "" {
+		t.Fatal("word/document.xml missing")
+	}
+	for _, want := range []string{
+		"马德里注册 / Madrid Registration",
+		"单一注册 / Single Filing",
+		"US 美国 / United States",
+		"AR 阿根廷 / Argentina",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("missing %q in doc:\n%s", want, doc)
+		}
+	}
+}
+
 // buildRouter builds a Gin router with quotation + export + auth
 // middleware injecting the given user. Legacy helper — exercises only
 // the GET /export.docx path, so svc+signer are nil.

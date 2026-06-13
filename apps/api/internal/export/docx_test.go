@@ -62,9 +62,14 @@ func TestRenderDOCX_BodyContainsBilingualContent(t *testing.T) {
 	wantSubstrings := []string{
 		"报价书 / Quotation",
 		"Acme 有限公司",
-		"CN",
-		"中国",
-		"China",
+		"US",
+		"美国",
+		"United States",
+		"AR",
+		"阿根廷",
+		"Argentina",
+		"马德里注册 / Madrid Registration",
+		"单一注册 / Single Filing",
 		"application",
 		"agent",
 		"¥ 150.00",
@@ -132,10 +137,20 @@ func sampleView() QuotationView {
 	submitted := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
 	reviewed := submitted.Add(2 * time.Hour)
 	return QuotationView{
-		QuotationID:   "11111111-2222-3333-4444-555555555555",
-		Status:        "approved",
-		ServiceTier:   "basic",
-		CustomerName:  "Acme 有限公司",
+		QuotationID:  "11111111-2222-3333-4444-555555555555",
+		Status:       "approved",
+		ServiceTier:  "basic",
+		CustomerName: "Acme 有限公司",
+		Countries: []CountryView{
+			{Code: "US", NameZH: "美国", NameEN: "United States"},
+			{Code: "AR", NameZH: "阿根廷", NameEN: "Argentina"},
+		},
+		MadridCountries: []CountryView{
+			{Code: "US", NameZH: "美国", NameEN: "United States"},
+		},
+		SingleCountries: []CountryView{
+			{Code: "AR", NameZH: "阿根廷", NameEN: "Argentina"},
+		},
 		CountryNameZH: "中国",
 		CountryNameEN: "China",
 		CountryCode:   "CN",

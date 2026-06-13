@@ -27,6 +27,11 @@ var validInfoSections = map[string]struct{}{
 	"real_cases":                {},
 }
 
+type methodCountrySelection struct {
+	madrid []uuid.UUID
+	single []uuid.UUID
+}
+
 func normalizeCountryIDs(primary uuid.UUID, selected []uuid.UUID) ([]uuid.UUID, error) {
 	if len(selected) == 0 {
 		if primary == uuid.Nil {
@@ -34,6 +39,19 @@ func normalizeCountryIDs(primary uuid.UUID, selected []uuid.UUID) ([]uuid.UUID, 
 		}
 		return []uuid.UUID{primary}, nil
 	}
+	out := make([]uuid.UUID, 0, len(selected))
+	for _, id := range selected {
+		if id == uuid.Nil {
+			return nil, ErrInvalidFormInput
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+func normalizeUUIDList(selected []uuid.UUID) ([]uuid.UUID, error) {
 	out := make([]uuid.UUID, 0, len(selected))
 	for _, id := range selected {
 		if id == uuid.Nil {
@@ -57,6 +75,49 @@ func normalizeNiceCategoryCodes(codes []int) ([]int, error) {
 		}
 	}
 	return out, nil
+}
+
+func normalizeMethodCountrySelection(
+	primary uuid.UUID,
+	legacyCountryIDs []uuid.UUID,
+	registrationMethods []string,
+	madridCountryIDs []uuid.UUID,
+	singleCountryIDs []uuid.UUID,
+) (methodCountrySelection, error) {
+	madridIDs, err := normalizeUUIDList(madridCountryIDs)
+	if err != nil {
+		return methodCountrySelection{}, err
+	}
+	singleIDs, err := normalizeUUIDList(singleCountryIDs)
+	if err != nil {
+		return methodCountrySelection{}, err
+	}
+	if len(madridIDs) > 0 || len(singleIDs) > 0 {
+		return methodCountrySelection{madrid: madridIDs, single: singleIDs}, nil
+	}
+
+	countryIDs, err := normalizeCountryIDs(primary, legacyCountryIDs)
+	if err != nil {
+		return methodCountrySelection{}, err
+	}
+	methods, err := normalizeRegistrationMethods(registrationMethods)
+	if err != nil {
+		return methodCountrySelection{}, err
+	}
+
+	selection := methodCountrySelection{
+		madrid: make([]uuid.UUID, 0),
+		single: make([]uuid.UUID, 0),
+	}
+	for _, method := range methods {
+		switch method {
+		case "madrid":
+			selection.madrid = append(selection.madrid, countryIDs...)
+		case "single":
+			selection.single = append(selection.single, countryIDs...)
+		}
+	}
+	return selection, nil
 }
 
 func normalizeRegistrationMethods(values []string) ([]string, error) {
@@ -127,12 +188,96 @@ func decodeJSONB[T any](raw audit.JSONB) []T {
 	return out
 }
 
-func quotationCountryIDs(q *Quotation) []uuid.UUID {
+func appendUniqueUUIDs(groups ...[]uuid.UUID) []uuid.UUID {
+	var out []uuid.UUID
+	for _, group := range groups {
+		for _, id := range group {
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+func (s methodCountrySelection) countryIDs() []uuid.UUID {
+	return appendUniqueUUIDs(s.madrid, s.single)
+}
+
+func (s methodCountrySelection) registrationMethods() []string {
+	methods := make([]string, 0, 2)
+	if len(s.madrid) > 0 {
+		methods = append(methods, "madrid")
+	}
+	if len(s.single) > 0 {
+		methods = append(methods, "single")
+	}
+	return methods
+}
+
+func legacyQuotationCountryIDs(q *Quotation) []uuid.UUID {
 	ids := decodeJSONB[uuid.UUID](q.CountryIDs)
 	if len(ids) == 0 && q.CountryID != uuid.Nil {
 		return []uuid.UUID{q.CountryID}
 	}
 	return ids
+}
+
+func legacyQuotationRegistrationMethods(q *Quotation) []string {
+	methods := decodeJSONB[string](q.RegistrationMethods)
+	if len(methods) == 0 {
+		return []string{"single"}
+	}
+	return methods
+}
+
+func quotationMethodCountrySelection(q *Quotation) methodCountrySelection {
+	if q == nil {
+		return methodCountrySelection{
+			madrid: make([]uuid.UUID, 0),
+			single: make([]uuid.UUID, 0),
+		}
+	}
+	madridIDs := decodeJSONB[uuid.UUID](q.MadridCountryIDs)
+	singleIDs := decodeJSONB[uuid.UUID](q.SingleCountryIDs)
+	if len(madridIDs) > 0 || len(singleIDs) > 0 {
+		return methodCountrySelection{madrid: madridIDs, single: singleIDs}
+	}
+	legacyIDs := legacyQuotationCountryIDs(q)
+	methods := legacyQuotationRegistrationMethods(q)
+	selection := methodCountrySelection{
+		madrid: make([]uuid.UUID, 0),
+		single: make([]uuid.UUID, 0),
+	}
+	for _, method := range methods {
+		switch method {
+		case "madrid":
+			selection.madrid = append(selection.madrid, legacyIDs...)
+		case "single":
+			selection.single = append(selection.single, legacyIDs...)
+		}
+	}
+	return selection
+}
+
+func quotationCountryIDs(q *Quotation) []uuid.UUID {
+	ids := decodeJSONB[uuid.UUID](q.CountryIDs)
+	if len(ids) == 0 {
+		selection := quotationMethodCountrySelection(q)
+		ids = selection.countryIDs()
+	}
+	if len(ids) == 0 && q.CountryID != uuid.Nil {
+		return []uuid.UUID{q.CountryID}
+	}
+	return ids
+}
+
+func quotationMadridCountryIDs(q *Quotation) []uuid.UUID {
+	return quotationMethodCountrySelection(q).madrid
+}
+
+func quotationSingleCountryIDs(q *Quotation) []uuid.UUID {
+	return quotationMethodCountrySelection(q).single
 }
 
 func quotationNiceCategoryCodes(q *Quotation) []int {
@@ -142,22 +287,46 @@ func quotationNiceCategoryCodes(q *Quotation) []int {
 func quotationRegistrationMethods(q *Quotation) []string {
 	methods := decodeJSONB[string](q.RegistrationMethods)
 	if len(methods) == 0 {
+		methods = quotationMethodCountrySelection(q).registrationMethods()
+	}
+	if len(methods) == 0 {
 		return []string{"single"}
 	}
 	return methods
 }
 
 func applyQuotationFormDefaults(q *Quotation) error {
-	if len(q.CountryIDs) == 0 {
-		countryIDs, err := normalizeCountryIDs(q.CountryID, nil)
-		if err != nil {
-			return err
-		}
-		raw, err := encodeJSONB(countryIDs)
-		if err != nil {
-			return err
-		}
-		q.CountryIDs = raw
+	selection, err := normalizeMethodCountrySelection(
+		q.CountryID,
+		decodeJSONB[uuid.UUID](q.CountryIDs),
+		decodeJSONB[string](q.RegistrationMethods),
+		decodeJSONB[uuid.UUID](q.MadridCountryIDs),
+		decodeJSONB[uuid.UUID](q.SingleCountryIDs),
+	)
+	if err != nil {
+		return err
+	}
+	countryIDs := selection.countryIDs()
+	registrationMethods := selection.registrationMethods()
+	if len(countryIDs) == 0 {
+		return ErrInvalidFormInput
+	}
+	q.CountryID = countryIDs[0]
+	q.CountryIDs, err = encodeJSONB(countryIDs)
+	if err != nil {
+		return err
+	}
+	q.MadridCountryIDs, err = encodeJSONB(selection.madrid)
+	if err != nil {
+		return err
+	}
+	q.SingleCountryIDs, err = encodeJSONB(selection.single)
+	if err != nil {
+		return err
+	}
+	q.RegistrationMethods, err = encodeJSONB(registrationMethods)
+	if err != nil {
+		return err
 	}
 	if len(q.NiceCategoryCodes) == 0 {
 		raw, err := encodeJSONB([]int{})
@@ -165,13 +334,6 @@ func applyQuotationFormDefaults(q *Quotation) error {
 			return err
 		}
 		q.NiceCategoryCodes = raw
-	}
-	if len(q.RegistrationMethods) == 0 {
-		raw, err := encodeJSONB([]string{"single"})
-		if err != nil {
-			return err
-		}
-		q.RegistrationMethods = raw
 	}
 	if q.AgentLevel == "" {
 		q.AgentLevel = agentLevelFromServiceTier(q.ServiceTier)

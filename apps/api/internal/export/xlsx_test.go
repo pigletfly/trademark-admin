@@ -50,6 +50,11 @@ func TestRenderXLSX_ContainsQuotationAndMethodPricingLines(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Quotation",
+		"Countries",
+		"Madrid Registration",
+		"Single Filing",
+		"US — United States",
+		"AR — Argentina",
 		"Registration Method",
 		"single",
 		"Singapore",

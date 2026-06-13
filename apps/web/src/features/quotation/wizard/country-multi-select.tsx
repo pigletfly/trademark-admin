@@ -11,6 +11,8 @@ interface CountryMultiSelectProps {
   value: string[]
   onValueChange: (value: string[]) => void
   loading?: boolean
+  ariaLabel?: string
+  placeholder?: string
 }
 
 export function CountryMultiSelect({
@@ -19,6 +21,8 @@ export function CountryMultiSelect({
   value,
   onValueChange,
   loading = false,
+  ariaLabel = 'Countries',
+  placeholder = 'Select countries',
 }: CountryMultiSelectProps) {
   const options = useMemo(
     () =>
@@ -40,8 +44,8 @@ export function CountryMultiSelect({
   return (
     <FilterableMultiSelect
       id={id}
-      ariaLabel='Countries'
-      placeholder='Select countries'
+      ariaLabel={ariaLabel}
+      placeholder={placeholder}
       searchLabel='Search countries'
       searchPlaceholder='Search countries...'
       loadingMessage='Loading countries...'

@@ -13,9 +13,9 @@ const USER_B = '00000000-0000-0000-0000-00000000B002'
 
 const empty: WizardDraft = {
   customer_id: '',
-  country_ids: [],
+  madrid_country_ids: [],
+  single_country_ids: [],
   nice_category_codes: [],
-  registration_methods: ['single'],
   agent_level: 'agent_a',
   info_sections: [],
   notes: '',
@@ -75,7 +75,7 @@ describe('wizard-store', () => {
     const s = store.getState()
     expect(s.editingId).toBe('q1')
     expect(s.draft.customer_id).toBe('c1')
-    expect(s.draft.country_ids).toEqual(['co1'])
+    expect(s.draft.single_country_ids).toEqual(['co1'])
     expect(s.draft.agent_level).toBe('agent_b')
     expect(s.draft.notes).toBe('edit-me')
     expect(s.currentStep).toBe(0)
@@ -88,8 +88,9 @@ describe('wizard-store', () => {
       customer_id: 'c1',
       country_id: 'co1',
       country_ids: ['co1', 'co2'],
+      madrid_country_ids: ['co1'],
+      single_country_ids: ['co2'],
       nice_category_codes: [9, 35],
-      registration_methods: ['madrid', 'single'],
       agent_level: 'agent_b',
       service_tier: 'standard',
       status: 'draft',
@@ -102,9 +103,9 @@ describe('wizard-store', () => {
     store.getState().loadForEdit('q1', q)
     expect(store.getState().draft).toEqual({
       customer_id: 'c1',
-      country_ids: ['co1', 'co2'],
+      madrid_country_ids: ['co1'],
+      single_country_ids: ['co2'],
       nice_category_codes: [9, 35],
-      registration_methods: ['madrid', 'single'],
       agent_level: 'agent_b',
       info_sections: ['acceptance_time', 'real_cases'],
       notes: 'edit-me',
@@ -147,7 +148,18 @@ describe('wizard-store', () => {
   it('isStepCountryValid requires at least one country', () => {
     expect(isStepCountryValid({ ...empty, customer_id: 'c1' })).toBe(false)
     expect(
-      isStepCountryValid({ ...empty, customer_id: 'c1', country_ids: ['co1'] })
+      isStepCountryValid({
+        ...empty,
+        customer_id: 'c1',
+        madrid_country_ids: ['co1'],
+      })
+    ).toBe(true)
+    expect(
+      isStepCountryValid({
+        ...empty,
+        customer_id: 'c1',
+        single_country_ids: ['co2'],
+      })
     ).toBe(true)
   })
 

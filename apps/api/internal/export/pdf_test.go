@@ -13,10 +13,20 @@ import (
 func baseView() export.QuotationView {
 	now := time.Date(2026, 4, 25, 10, 30, 0, 0, time.UTC)
 	return export.QuotationView{
-		QuotationID:   uuid.New().String(),
-		Status:        "approved",
-		ServiceTier:   "standard",
-		CustomerName:  "北京示例科技",
+		QuotationID:  uuid.New().String(),
+		Status:       "approved",
+		ServiceTier:  "standard",
+		CustomerName: "北京示例科技",
+		Countries: []export.CountryView{
+			{Code: "US", NameZH: "美国", NameEN: "United States"},
+			{Code: "AR", NameZH: "阿根廷", NameEN: "Argentina"},
+		},
+		MadridCountries: []export.CountryView{
+			{Code: "US", NameZH: "美国", NameEN: "United States"},
+		},
+		SingleCountries: []export.CountryView{
+			{Code: "AR", NameZH: "阿根廷", NameEN: "Argentina"},
+		},
 		CountryNameZH: "中国",
 		CountryNameEN: "China",
 		CountryCode:   "CN",
@@ -76,6 +86,25 @@ func TestRenderHTML_Bilingual_IncludesMethodPricingColumns(t *testing.T) {
 		"madrid",
 		"Basic registration fee - black and white mark",
 		"CHF 653.00",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in output:\n%s", want, s)
+		}
+	}
+}
+
+func TestRenderHTML_Bilingual_IncludesGroupedCountrySections(t *testing.T) {
+	html, err := export.RenderHTML(baseView(), export.LanguageBilingual)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	s := string(html)
+	for _, want := range []string{
+		"国家 Countries",
+		"马德里注册 Madrid Registration",
+		"单一注册 Single Filing",
+		"US 美国 / United States",
+		"AR 阿根廷 / Argentina",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in output:\n%s", want, s)

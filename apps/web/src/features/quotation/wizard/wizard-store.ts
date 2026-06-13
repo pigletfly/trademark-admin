@@ -1,11 +1,14 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import {
+  deriveMethodCountrySelectionFromQuotation,
+  hasSelectedCountries,
+} from '../method-country-selection'
 
 import type {
   AgentLevel,
   QuoteInfoSection,
   Quotation,
-  RegistrationMethod,
   ServiceTier,
 } from '../types'
 
@@ -13,9 +16,9 @@ import type {
 // predictable and localStorage migrations remain cheap.
 export interface WizardDraft {
   customer_id: string
-  country_ids: string[]
+  madrid_country_ids: string[]
+  single_country_ids: string[]
   nice_category_codes: number[]
-  registration_methods: RegistrationMethod[]
   agent_level: AgentLevel
   info_sections: QuoteInfoSection[]
   notes: string
@@ -34,9 +37,9 @@ export interface WizardState {
 
 const EMPTY_DRAFT: WizardDraft = {
   customer_id: '',
-  country_ids: [],
+  madrid_country_ids: [],
+  single_country_ids: [],
   nice_category_codes: [],
-  registration_methods: ['single'],
   agent_level: 'agent_a',
   info_sections: [],
   notes: '',
@@ -60,6 +63,39 @@ export function createWizardStore(
   userId: string
 ): UseBoundStore<StoreApi<WizardState>> {
   const storageKey = `quotation-wizard-draft:${userId}`
+
+  const migratePersistedState = (persisted: unknown): Partial<WizardState> => {
+    const state = (persisted ?? {}) as {
+      currentStep?: WizardState['currentStep']
+      editingId?: string | null
+      draft?: Record<string, unknown>
+    }
+    const draft = (state.draft ?? {}) as Partial<WizardDraft> & {
+      country_ids?: string[]
+      registration_methods?: Quotation['registration_methods']
+    }
+    const methodSelection = deriveMethodCountrySelectionFromQuotation({
+      country_id: draft.country_ids?.[0] ?? '',
+      country_ids: draft.country_ids,
+      registration_methods: draft.registration_methods,
+      madrid_country_ids: draft.madrid_country_ids,
+      single_country_ids: draft.single_country_ids,
+    })
+    return {
+      currentStep: state.currentStep ?? 0,
+      editingId: state.editingId ?? null,
+      draft: {
+        customer_id: draft.customer_id ?? '',
+        madrid_country_ids: methodSelection.madrid_country_ids,
+        single_country_ids: methodSelection.single_country_ids,
+        nice_category_codes: draft.nice_category_codes ?? [],
+        agent_level: draft.agent_level ?? 'agent_a',
+        info_sections: draft.info_sections ?? [],
+        notes: draft.notes ?? '',
+      },
+    }
+  }
+
   return create<WizardState>()(
     persist(
       (set) => ({
@@ -77,13 +113,8 @@ export function createWizardStore(
             currentStep: 0,
             draft: {
               customer_id: q.customer_id,
-              country_ids: q.country_ids?.length
-                ? q.country_ids
-                : [q.country_id],
+              ...deriveMethodCountrySelectionFromQuotation(q),
               nice_category_codes: q.nice_category_codes ?? [],
-              registration_methods: q.registration_methods?.length
-                ? q.registration_methods
-                : ['single'],
               agent_level:
                 q.agent_level ?? agentLevelForServiceTier(q.service_tier),
               info_sections: q.info_sections ?? [],
@@ -94,6 +125,8 @@ export function createWizardStore(
       {
         name: storageKey,
         storage: createJSONStorage(() => localStorage),
+        version: 1,
+        migrate: migratePersistedState,
         // Only persist draft + currentStep + editingId — those are the
         // "user's in-progress work". Method references don't persist.
         partialize: (s) => ({
@@ -114,7 +147,10 @@ export function isStepCustomerValid(d: WizardDraft): boolean {
 }
 
 export function isStepCountryValid(d: WizardDraft): boolean {
-  return (d.country_ids ?? []).length > 0
+  return hasSelectedCountries({
+    madrid_country_ids: d.madrid_country_ids ?? [],
+    single_country_ids: d.single_country_ids ?? [],
+  })
 }
 
 export function isStepTierValid(d: WizardDraft): boolean {
@@ -132,17 +168,16 @@ export function isStepNotesValid(_d: WizardDraft): boolean {
 // hasNonEmptyDraft is the "resume banner" trigger — any user-typed
 // content means we should ask before silently reusing the state.
 export function hasNonEmptyDraft(d: WizardDraft): boolean {
-  const countryIds = d.country_ids ?? []
+  const madridCountryIDs = d.madrid_country_ids ?? []
+  const singleCountryIDs = d.single_country_ids ?? []
   const niceCategoryCodes = d.nice_category_codes ?? []
-  const registrationMethods = d.registration_methods ?? ['single']
   const agentLevel = d.agent_level ?? 'agent_a'
   const infoSections = d.info_sections ?? []
   return (
     d.customer_id.length > 0 ||
-    countryIds.length > 0 ||
+    madridCountryIDs.length > 0 ||
+    singleCountryIDs.length > 0 ||
     niceCategoryCodes.length > 0 ||
-    registrationMethods.length !== 1 ||
-    registrationMethods[0] !== 'single' ||
     agentLevel !== 'agent_a' ||
     infoSections.length > 0 ||
     d.notes.length > 0

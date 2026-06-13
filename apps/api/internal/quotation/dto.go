@@ -12,6 +12,8 @@ type CreateRequest struct {
 	CustomerID          uuid.UUID   `json:"customer_id" binding:"required"`
 	CountryID           uuid.UUID   `json:"country_id"  binding:"required"`
 	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	MadridCountryIDs    []uuid.UUID `json:"madrid_country_ids,omitempty"`
+	SingleCountryIDs    []uuid.UUID `json:"single_country_ids,omitempty"`
 	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
 	RegistrationMethods []string    `json:"registration_methods,omitempty"`
 	AgentLevel          string      `json:"agent_level,omitempty"`
@@ -26,6 +28,8 @@ type UpdateDraftRequest struct {
 	CustomerID          *uuid.UUID   `json:"customer_id"`
 	CountryID           *uuid.UUID   `json:"country_id"`
 	CountryIDs          *[]uuid.UUID `json:"country_ids"`
+	MadridCountryIDs    *[]uuid.UUID `json:"madrid_country_ids"`
+	SingleCountryIDs    *[]uuid.UUID `json:"single_country_ids"`
 	NiceCategoryCodes   *[]int       `json:"nice_category_codes"`
 	RegistrationMethods *[]string    `json:"registration_methods"`
 	AgentLevel          *string      `json:"agent_level"`
@@ -82,6 +86,8 @@ type Response struct {
 	CustomerID          uuid.UUID   `json:"customer_id"`
 	CountryID           uuid.UUID   `json:"country_id"`
 	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	MadridCountryIDs    []uuid.UUID `json:"madrid_country_ids,omitempty"`
+	SingleCountryIDs    []uuid.UUID `json:"single_country_ids,omitempty"`
 	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
 	RegistrationMethods []string    `json:"registration_methods,omitempty"`
 	AgentLevel          string      `json:"agent_level,omitempty"`
@@ -121,6 +127,8 @@ type PreviewRequest struct {
 	CustomerID          uuid.UUID   `json:"customer_id"  binding:"required"`
 	CountryID           uuid.UUID   `json:"country_id"   binding:"required"`
 	CountryIDs          []uuid.UUID `json:"country_ids,omitempty"`
+	MadridCountryIDs    []uuid.UUID `json:"madrid_country_ids,omitempty"`
+	SingleCountryIDs    []uuid.UUID `json:"single_country_ids,omitempty"`
 	NiceCategoryCodes   []int       `json:"nice_category_codes,omitempty"`
 	RegistrationMethods []string    `json:"registration_methods,omitempty"`
 	ServiceTier         string      `json:"service_tier" binding:"required"`

@@ -215,29 +215,32 @@ func TestCreate_InvalidTier(t *testing.T) {
 }
 
 func TestCreate_PersistsExtendedFormFields(t *testing.T) {
-	countryA := uuid.New()
-	countryB := uuid.New()
+	madridCountry := uuid.New()
+	singleCountryA := uuid.New()
+	singleCountryB := uuid.New()
 	owner := uuid.New()
 	svc, _ := newService(nil)
 
 	q, err := svc.Create(context.Background(), owner, CreateRequest{
-		CustomerID:          uuid.New(),
-		CountryID:           countryA,
-		CountryIDs:          []uuid.UUID{countryA, countryB},
-		NiceCategoryCodes:   []int{9, 35},
-		RegistrationMethods: []string{"madrid", "single"},
-		AgentLevel:          "agent_b",
-		ServiceTier:         "standard",
-		InfoSections:        []string{"acceptance_time", "real_cases"},
+		CustomerID:        uuid.New(),
+		CountryID:         madridCountry,
+		MadridCountryIDs:  []uuid.UUID{madridCountry},
+		SingleCountryIDs:  []uuid.UUID{singleCountryA, singleCountryB},
+		NiceCategoryCodes: []int{9, 35},
+		AgentLevel:        "agent_b",
+		ServiceTier:       "standard",
+		InfoSections:      []string{"acceptance_time", "real_cases"},
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	if q.CountryID != countryA {
-		t.Fatalf("primary country = %s, want %s", q.CountryID, countryA)
+	if q.CountryID != madridCountry {
+		t.Fatalf("primary country = %s, want %s", q.CountryID, madridCountry)
 	}
-	assertUUIDJSONB(t, q.CountryIDs, []uuid.UUID{countryA, countryB})
+	assertUUIDJSONB(t, q.CountryIDs, []uuid.UUID{madridCountry, singleCountryA, singleCountryB})
+	assertUUIDJSONB(t, q.MadridCountryIDs, []uuid.UUID{madridCountry})
+	assertUUIDJSONB(t, q.SingleCountryIDs, []uuid.UUID{singleCountryA, singleCountryB})
 	assertIntJSONB(t, q.NiceCategoryCodes, []int{9, 35})
 	assertStringJSONB(t, q.RegistrationMethods, []string{"madrid", "single"})
 	if q.AgentLevel != "agent_b" {
@@ -789,6 +792,244 @@ func TestPreview_UsesSingleClassPricingForSingleRegistrationMethod(t *testing.T)
 	}
 }
 
+func TestService_Preview_UsesSeparateCountrySelectionsPerMethod(t *testing.T) {
+	madridCountry := uuid.New()
+	singleCountry := uuid.New()
+	custID := uuid.New()
+	baseID := uuid.New()
+	madridSourceID := uuid.New()
+	singleSourceID := uuid.New()
+	pricingRepo := &fakePricingRepo{
+		madridEntries: []pricing.MadridPricingEntry{
+			{
+				ID:                  baseID,
+				CountryArea:         "Basic registration fee - black and white mark",
+				OfficialFeeCHFCents: 65300,
+				AgencyFeeCNYCents:   400000,
+				IsBaseFee:           true,
+			},
+			{
+				ID:                  madridSourceID,
+				CountryID:           &madridCountry,
+				CountryArea:         "Singapore",
+				OfficialFeeCHFCents: 26100,
+				AgencyFeeCNYCents:   40000,
+			},
+		},
+		singleClassEntries: []pricing.SingleClassPricingEntry{{
+			ID:                             singleSourceID,
+			CountryID:                      singleCountry,
+			Continent:                      "Asia",
+			CountryArea:                    "Japan",
+			FirstClassFeeCNYCents:          360000,
+			FirstClassFeeTax6CNYCents:      381600,
+			FirstClassFeeTax1CNYCents:      363600,
+			AdditionalClassFeeCNYCents:     270000,
+			AdditionalClassFeeTax6CNYCents: 286200,
+			AdditionalClassFeeTax1CNYCents: 272700,
+		}},
+	}
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:        custID,
+		CountryID:         madridCountry,
+		MadridCountryIDs:  []uuid.UUID{madridCountry},
+		SingleCountryIDs:  []uuid.UUID{singleCountry},
+		NiceCategoryCodes: []int{9, 35},
+		ServiceTier:       "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if resp.TotalCNYCents != 1874320 {
+		t.Fatalf("total = %d, want 1874320", resp.TotalCNYCents)
+	}
+	if len(resp.Lines) != 6 {
+		t.Fatalf("lines = %d, want 6", len(resp.Lines))
+	}
+
+	var madridLines int
+	var singleLines int
+	for _, line := range resp.Lines {
+		switch line.RegistrationMethod {
+		case "madrid":
+			madridLines++
+		case "single":
+			singleLines++
+		}
+	}
+	if madridLines != 4 {
+		t.Fatalf("madrid lines = %d, want 4", madridLines)
+	}
+	if singleLines != 2 {
+		t.Fatalf("single lines = %d, want 2", singleLines)
+	}
+
+	foundMadridCountry := false
+	foundSingleCountry := false
+	for _, line := range resp.Lines {
+		if line.CountryID != nil && *line.CountryID == madridCountry && line.RegistrationMethod == "madrid" {
+			foundMadridCountry = true
+		}
+		if line.CountryID != nil && *line.CountryID == singleCountry && line.RegistrationMethod == "single" {
+			foundSingleCountry = true
+		}
+	}
+	if !foundMadridCountry {
+		t.Fatal("missing madrid designated-country line")
+	}
+	if !foundSingleCountry {
+		t.Fatal("missing single-filing country line")
+	}
+}
+
+func TestService_Preview_FallsBackPerCountryWhenSinglePricingCoverageIsPartial(t *testing.T) {
+	methodCountry := uuid.New()
+	legacyCountry := uuid.New()
+	custID := uuid.New()
+	legacyEntryID := uuid.New()
+	methodEntryID := uuid.New()
+	pricingRepo := &fakePricingRepo{
+		entries: []pricing.PricingEntry{{
+			ID:             legacyEntryID,
+			CountryID:      legacyCountry,
+			ServiceTier:    "basic",
+			FeeItem:        "legacy single fee",
+			AmountCNYCents: 70000,
+		}},
+		singleClassEntries: []pricing.SingleClassPricingEntry{{
+			ID:                             methodEntryID,
+			CountryID:                      methodCountry,
+			Continent:                      "Asia",
+			CountryArea:                    "Singapore",
+			FirstClassFeeCNYCents:          360000,
+			FirstClassFeeTax6CNYCents:      381600,
+			FirstClassFeeTax1CNYCents:      363600,
+			AdditionalClassFeeCNYCents:     270000,
+			AdditionalClassFeeTax6CNYCents: 286200,
+			AdditionalClassFeeTax1CNYCents: 272700,
+		}},
+	}
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:        custID,
+		CountryID:         methodCountry,
+		SingleCountryIDs:  []uuid.UUID{methodCountry, legacyCountry},
+		NiceCategoryCodes: []int{9},
+		ServiceTier:       "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if resp.TotalCNYCents != 430000 {
+		t.Fatalf("total = %d, want 430000", resp.TotalCNYCents)
+	}
+	if len(resp.Lines) != 2 {
+		t.Fatalf("lines = %d, want 2", len(resp.Lines))
+	}
+
+	var foundMethodLine bool
+	var foundLegacyLine bool
+	for _, line := range resp.Lines {
+		if line.CountryID != nil && *line.CountryID == methodCountry {
+			foundMethodLine = true
+			if line.RegistrationMethod != "single" || line.SourcePricingTable != pricing.SingleClassPricingTable {
+				t.Fatalf("method-priced line mismatch: %+v", line)
+			}
+		}
+		if line.CountryID != nil && *line.CountryID == legacyCountry {
+			foundLegacyLine = true
+			if line.RegistrationMethod != "single" {
+				t.Fatalf("legacy fallback should keep single method: %+v", line)
+			}
+			if line.SourcePricingEntryID == nil || *line.SourcePricingEntryID != legacyEntryID {
+				t.Fatalf("legacy fallback source mismatch: %+v", line)
+			}
+		}
+	}
+	if !foundMethodLine {
+		t.Fatal("missing method-priced single line")
+	}
+	if !foundLegacyLine {
+		t.Fatal("missing legacy fallback single line")
+	}
+}
+
+func TestService_Preview_FallsBackPerCountryWhenMadridPricingCoverageIsPartial(t *testing.T) {
+	methodCountry := uuid.New()
+	legacyCountry := uuid.New()
+	custID := uuid.New()
+	baseID := uuid.New()
+	designatedID := uuid.New()
+	legacyEntryID := uuid.New()
+	pricingRepo := &fakePricingRepo{
+		entries: []pricing.PricingEntry{{
+			ID:             legacyEntryID,
+			CountryID:      legacyCountry,
+			ServiceTier:    "basic",
+			FeeItem:        "legacy madrid fee",
+			AmountCNYCents: 50000,
+		}},
+		madridEntries: []pricing.MadridPricingEntry{
+			{
+				ID:                  baseID,
+				CountryArea:         "Base fee",
+				OfficialFeeCHFCents: 10000,
+				AgencyFeeCNYCents:   20000,
+				IsBaseFee:           true,
+			},
+			{
+				ID:                  designatedID,
+				CountryID:           &methodCountry,
+				CountryArea:         "Singapore",
+				OfficialFeeCHFCents: 30000,
+				AgencyFeeCNYCents:   40000,
+			},
+		},
+	}
+	custRepo := newFakeCustomerRepo()
+	custRepo.byID[custID] = &customer.Customer{ID: custID, Name: "Acme"}
+	svc := NewService(newFakeRepo(), pricingRepo, custRepo)
+
+	resp, err := svc.Preview(context.Background(), PreviewRequest{
+		CustomerID:       custID,
+		CountryID:        methodCountry,
+		MadridCountryIDs: []uuid.UUID{methodCountry, legacyCountry},
+		ServiceTier:      "basic",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if resp.TotalCNYCents != 462000 {
+		t.Fatalf("total = %d, want 462000", resp.TotalCNYCents)
+	}
+	if len(resp.Lines) != 5 {
+		t.Fatalf("lines = %d, want 5", len(resp.Lines))
+	}
+
+	var foundLegacyLine bool
+	for _, line := range resp.Lines {
+		if line.CountryID != nil && *line.CountryID == legacyCountry {
+			foundLegacyLine = true
+			if line.RegistrationMethod != "madrid" {
+				t.Fatalf("legacy fallback should keep madrid method: %+v", line)
+			}
+			if line.SourcePricingEntryID == nil || *line.SourcePricingEntryID != legacyEntryID {
+				t.Fatalf("legacy fallback source mismatch: %+v", line)
+			}
+		}
+	}
+	if !foundLegacyLine {
+		t.Fatal("missing legacy fallback madrid line")
+	}
+}
+
 func TestSubmit_UsesMadridPricingForMadridRegistrationMethod(t *testing.T) {
 	country := uuid.New()
 	owner := uuid.New()
@@ -843,6 +1084,54 @@ func TestSubmit_UsesMadridPricingForMadridRegistrationMethod(t *testing.T) {
 	}
 	if snap.Lines[2].SourcePricingID == nil || *snap.Lines[2].SourcePricingID != countrySourceID {
 		t.Fatalf("country source id mismatch: %+v", snap.Lines[2])
+	}
+}
+
+func TestSubmit_LegacySinglePricingCarriesRegistrationMethod(t *testing.T) {
+	country := uuid.New()
+	owner := uuid.New()
+	entryID := uuid.New()
+	svc, _ := newService([]pricing.PricingEntry{{
+		ID:             entryID,
+		CountryID:      country,
+		ServiceTier:    "basic",
+		FeeItem:        "application",
+		AmountCNYCents: 10000,
+		EffectiveFrom:  time.Now().Add(-24 * time.Hour),
+		CreatedBy:      owner,
+	}})
+
+	q, err := svc.Create(context.Background(), owner, CreateRequest{
+		CustomerID:          uuid.New(),
+		CountryID:           country,
+		SingleCountryIDs:    []uuid.UUID{country},
+		RegistrationMethods: []string{"single"},
+		ServiceTier:         "basic",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	submitted, err := svc.Submit(context.Background(), q.ID, owner)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	snap, err := submitted.DecodeSnapshot()
+	if err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if len(snap.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(snap.Lines))
+	}
+	line := snap.Lines[0]
+	if line.RegistrationMethod != "single" {
+		t.Fatalf("registration method = %q, want single", line.RegistrationMethod)
+	}
+	if line.CountryID == nil || *line.CountryID != country {
+		t.Fatalf("country id = %v, want %s", line.CountryID, country)
+	}
+	if line.SourcePricingEntryID == nil || *line.SourcePricingEntryID != entryID {
+		t.Fatalf("source pricing entry id = %v, want %s", line.SourcePricingEntryID, entryID)
 	}
 }
 

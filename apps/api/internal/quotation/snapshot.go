@@ -40,6 +40,77 @@ func computeAdjustSignature(lines []SnapshotLine) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func computeMethodSnapshotSignature(niceCategoryCount int, lines []SnapshotLine, total int64) string {
+	sortedLines := make([]SnapshotLine, len(lines))
+	copy(sortedLines, lines)
+	sort.Slice(sortedLines, func(i, j int) bool {
+		if sortedLines[i].RegistrationMethod != sortedLines[j].RegistrationMethod {
+			return sortedLines[i].RegistrationMethod < sortedLines[j].RegistrationMethod
+		}
+		leftCountryID, rightCountryID := "", ""
+		if sortedLines[i].CountryID != nil {
+			leftCountryID = sortedLines[i].CountryID.String()
+		}
+		if sortedLines[j].CountryID != nil {
+			rightCountryID = sortedLines[j].CountryID.String()
+		}
+		if leftCountryID != rightCountryID {
+			return leftCountryID < rightCountryID
+		}
+		if sortedLines[i].CountryArea != sortedLines[j].CountryArea {
+			return sortedLines[i].CountryArea < sortedLines[j].CountryArea
+		}
+		if sortedLines[i].FeeItem != sortedLines[j].FeeItem {
+			return sortedLines[i].FeeItem < sortedLines[j].FeeItem
+		}
+		return sortedLines[i].AmountCNYCents < sortedLines[j].AmountCNYCents
+	})
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "method-v2|classes=%d|", niceCategoryCount)
+	for _, line := range sortedLines {
+		countryID := ""
+		if line.CountryID != nil {
+			countryID = line.CountryID.String()
+		}
+		sourceEntryID := ""
+		if line.SourcePricingEntryID != nil {
+			sourceEntryID = line.SourcePricingEntryID.String()
+		}
+		sourcePricingID := ""
+		if line.SourcePricingID != nil {
+			sourcePricingID = line.SourcePricingID.String()
+		}
+		unit := int64(0)
+		if line.UnitAmountCNYCents != nil {
+			unit = *line.UnitAmountCNYCents
+		}
+		chf := int64(0)
+		if line.OfficialFeeCHFCents != nil {
+			chf = *line.OfficialFeeCHFCents
+		}
+		fmt.Fprintf(
+			&b,
+			"%s|%s|%s|%s|%s|%s|%d:%s|qty=%d|unit=%d|chf=%d|amount=%d;",
+			line.RegistrationMethod,
+			countryID,
+			line.CountryArea,
+			sourceEntryID,
+			line.SourcePricingTable,
+			sourcePricingID,
+			len(line.FeeItem),
+			line.FeeItem,
+			line.Quantity,
+			unit,
+			chf,
+			line.AmountCNYCents,
+		)
+	}
+	fmt.Fprintf(&b, "=%d", total)
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
+
 func computeQuotationSignature(countryIDs []uuid.UUID, serviceTier string, lines []SnapshotLine, total int64) string {
 	sortedCountries := make([]uuid.UUID, len(countryIDs))
 	copy(sortedCountries, countryIDs)

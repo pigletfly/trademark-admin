@@ -214,29 +214,45 @@ func (h *Handler) buildView(
 	if err != nil || cust == nil {
 		return QuotationView{}, fmt.Errorf("export: lookup customer: %w", err)
 	}
-	country, err := h.catRepo.GetCountry(ctx, q.CountryID)
-	if err != nil || country == nil {
-		return QuotationView{}, fmt.Errorf("export: lookup country: %w", err)
+	resp := quotation.ToResponse(q)
+	countries, err := h.resolveCountries(ctx, resp.CountryIDs)
+	if err != nil {
+		return QuotationView{}, err
+	}
+	madridCountries, err := h.resolveCountries(ctx, resp.MadridCountryIDs)
+	if err != nil {
+		return QuotationView{}, err
+	}
+	singleCountries, err := h.resolveCountries(ctx, resp.SingleCountryIDs)
+	if err != nil {
+		return QuotationView{}, err
 	}
 	snap, err := q.DecodeSnapshot()
 	if err != nil {
 		return QuotationView{}, fmt.Errorf("export: decode snapshot: %w", err)
 	}
+	primaryCountry := CountryView{}
+	if len(countries) > 0 {
+		primaryCountry = countries[0]
+	}
 	v := QuotationView{
-		QuotationID:   q.ID.String(),
-		Status:        string(q.Status),
-		ServiceTier:   q.ServiceTier,
-		CustomerName:  cust.Name,
-		CountryNameZH: country.NameZh,
-		CountryNameEN: country.NameEn,
-		CountryCode:   country.Code,
-		TotalCNYCents: derefInt64(q.TotalCNYCents),
-		Signature:     derefString(q.Signature),
-		SubmittedAt:   q.SubmittedAt,
-		ReviewedAt:    q.ReviewedAt,
-		ReviewComment: derefString(q.ReviewComment),
-		Notes:         derefString(q.Notes),
-		GeneratedAt:   time.Now(),
+		QuotationID:     q.ID.String(),
+		Status:          string(q.Status),
+		ServiceTier:     q.ServiceTier,
+		CustomerName:    cust.Name,
+		Countries:       countries,
+		MadridCountries: madridCountries,
+		SingleCountries: singleCountries,
+		CountryNameZH:   primaryCountry.NameZH,
+		CountryNameEN:   primaryCountry.NameEN,
+		CountryCode:     primaryCountry.Code,
+		TotalCNYCents:   derefInt64(q.TotalCNYCents),
+		Signature:       derefString(q.Signature),
+		SubmittedAt:     q.SubmittedAt,
+		ReviewedAt:      q.ReviewedAt,
+		ReviewComment:   derefString(q.ReviewComment),
+		Notes:           derefString(q.Notes),
+		GeneratedAt:     time.Now(),
 	}
 	for _, l := range snap.Lines {
 		v.Lines = append(v.Lines, ExportLine{
@@ -253,6 +269,25 @@ func (h *Handler) buildView(
 }
 
 // --- helpers ---
+
+func (h *Handler) resolveCountries(ctx context.Context, ids []uuid.UUID) ([]CountryView, error) {
+	out := make([]CountryView, 0, len(ids))
+	for _, id := range ids {
+		country, err := h.catRepo.GetCountry(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("export: lookup country %s: %w", id, err)
+		}
+		if country == nil {
+			return nil, fmt.Errorf("export: lookup country %s: empty result", id)
+		}
+		out = append(out, CountryView{
+			Code:   country.Code,
+			NameZH: country.NameZh,
+			NameEN: country.NameEn,
+		})
+	}
+	return out, nil
+}
 
 // parseExportID reads :key as a UUID, writes a 400 and returns false on error.
 func parseExportID(c *gin.Context, key string) (uuid.UUID, bool) {

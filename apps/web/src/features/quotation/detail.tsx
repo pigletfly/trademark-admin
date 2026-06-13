@@ -9,6 +9,10 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { customerDetailQueryOptions } from '@/features/customers/hooks'
 import { useCountries } from '@/features/catalog/hooks/use-countries'
 import { useNiceCategories } from '@/features/catalog/hooks/use-nice-categories'
+import {
+  deriveMethodCountrySelectionFromQuotation,
+  selectedRegistrationMethods,
+} from './method-country-selection'
 import { useQuotation, useQuotationHistory } from './hooks'
 import { QuotationStatusBadge } from './components/quotation-status-badge'
 import { QuotationSnapshotView } from './components/quotation-snapshot'
@@ -17,8 +21,8 @@ import { QuotationExportActions } from './components/quotation-export-actions'
 import { QuotationHistoryTimeline } from './components/quotation-history-timeline'
 
 const REGISTRATION_METHOD_LABELS: Record<string, string> = {
-  madrid: '马德里',
-  single: '单一分类',
+  madrid: '马德里注册',
+  single: '单一注册',
 }
 
 const AGENT_LEVEL_LABELS: Record<string, string> = {
@@ -46,6 +50,9 @@ export function QuotationDetail() {
     ...customerDetailQueryOptions(q?.customer_id ?? ''),
     enabled: !!q?.customer_id,
   })
+  const methodCountrySelection = q
+    ? deriveMethodCountrySelectionFromQuotation(q)
+    : { madrid_country_ids: [], single_country_ids: [] }
   const countryIds = q
     ? q.country_ids?.length
       ? q.country_ids
@@ -61,6 +68,19 @@ export function QuotationDetail() {
       ? `第 ${category.code} 类 ${category.name_zh}`
       : `第 ${code} 类`
   })
+  const madridCountryNames = methodCountrySelection.madrid_country_ids.map(
+    (id) => {
+      const country = countries?.find((item) => item.id === id)
+      return country ? `${country.name_zh}（${country.code}）` : id
+    }
+  )
+  const singleCountryNames = methodCountrySelection.single_country_ids.map(
+    (id) => {
+      const country = countries?.find((item) => item.id === id)
+      return country ? `${country.name_zh}（${country.code}）` : id
+    }
+  )
+  const registrationMethods = selectedRegistrationMethods(methodCountrySelection)
 
   return (
     <>
@@ -101,12 +121,24 @@ export function QuotationDetail() {
                       : q.country_id}
                   </div>
                   <div>
+                    <span className='text-muted-foreground'>马德里注册：</span>
+                    {madridCountryNames.length
+                      ? madridCountryNames.join('、')
+                      : '—'}
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>单一注册：</span>
+                    {singleCountryNames.length
+                      ? singleCountryNames.join('、')
+                      : '—'}
+                  </div>
+                  <div>
                     <span className='text-muted-foreground'>商标类别：</span>
                     {niceLabels.length ? niceLabels.join('、') : '—'}
                   </div>
                   <div>
                     <span className='text-muted-foreground'>注册方式：</span>
-                    {(q.registration_methods ?? [])
+                    {registrationMethods
                       .map(
                         (method) => REGISTRATION_METHOD_LABELS[method] ?? method
                       )

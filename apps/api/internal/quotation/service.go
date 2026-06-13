@@ -86,18 +86,22 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, req CreateReque
 	if !pricing.IsValidServiceTier(req.ServiceTier) {
 		return nil, ErrInvalidTier
 	}
-	countryIDs, err := normalizeCountryIDs(req.CountryID, req.CountryIDs)
+	selection, err := normalizeMethodCountrySelection(
+		req.CountryID,
+		req.CountryIDs,
+		req.RegistrationMethods,
+		req.MadridCountryIDs,
+		req.SingleCountryIDs,
+	)
 	if err != nil {
 		return nil, err
 	}
+	countryIDs := selection.countryIDs()
 	niceCodes, err := normalizeNiceCategoryCodes(req.NiceCategoryCodes)
 	if err != nil {
 		return nil, err
 	}
-	registrationMethods, err := normalizeRegistrationMethods(req.RegistrationMethods)
-	if err != nil {
-		return nil, err
-	}
+	registrationMethods := selection.registrationMethods()
 	agentLevel, err := normalizeAgentLevel(req.AgentLevel)
 	if err != nil {
 		return nil, err
@@ -109,6 +113,14 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, req CreateReque
 	countryIDsJSON, err := encodeJSONB(countryIDs)
 	if err != nil {
 		return nil, fmt.Errorf("quotation: marshal country ids: %w", err)
+	}
+	madridCountryIDsJSON, err := encodeJSONB(selection.madrid)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal madrid country ids: %w", err)
+	}
+	singleCountryIDsJSON, err := encodeJSONB(selection.single)
+	if err != nil {
+		return nil, fmt.Errorf("quotation: marshal single country ids: %w", err)
 	}
 	niceCodesJSON, err := encodeJSONB(niceCodes)
 	if err != nil {
@@ -127,6 +139,8 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, req CreateReque
 		CustomerID:          req.CustomerID,
 		CountryID:           countryIDs[0],
 		CountryIDs:          countryIDsJSON,
+		MadridCountryIDs:    madridCountryIDsJSON,
+		SingleCountryIDs:    singleCountryIDsJSON,
 		NiceCategoryCodes:   niceCodesJSON,
 		RegistrationMethods: registrationMethodsJSON,
 		AgentLevel:          agentLevel,
@@ -162,25 +176,76 @@ func (s *Service) UpdateDraft(ctx context.Context, id, actorID uuid.UUID, req Up
 	if req.CustomerID != nil {
 		patch["customer_id"] = *req.CustomerID
 	}
-	if req.CountryID != nil {
-		patch["country_id"] = *req.CountryID
-		countryIDsJSON, err := encodeJSONB([]uuid.UUID{*req.CountryID})
-		if err != nil {
-			return fmt.Errorf("quotation: marshal country ids: %w", err)
+	selectionChanged :=
+		req.CountryID != nil ||
+			req.CountryIDs != nil ||
+			req.RegistrationMethods != nil ||
+			req.MadridCountryIDs != nil ||
+			req.SingleCountryIDs != nil
+	if selectionChanged {
+		selection := quotationMethodCountrySelection(q)
+		if req.CountryID != nil || req.CountryIDs != nil || req.RegistrationMethods != nil {
+			primary := q.CountryID
+			if req.CountryID != nil {
+				primary = *req.CountryID
+			}
+			legacyCountryIDs := quotationCountryIDs(q)
+			if req.CountryID != nil {
+				legacyCountryIDs = []uuid.UUID{*req.CountryID}
+			}
+			if req.CountryIDs != nil {
+				legacyCountryIDs = *req.CountryIDs
+			}
+			methods := quotationRegistrationMethods(q)
+			if req.RegistrationMethods != nil {
+				methods = *req.RegistrationMethods
+			}
+			var err error
+			selection, err = normalizeMethodCountrySelection(primary, legacyCountryIDs, methods, nil, nil)
+			if err != nil {
+				return err
+			}
 		}
-		patch["country_ids"] = countryIDsJSON
-	}
-	if req.CountryIDs != nil {
-		countryIDs, err := normalizeCountryIDs(uuid.Nil, *req.CountryIDs)
-		if err != nil {
-			return err
+		if req.MadridCountryIDs != nil {
+			madridIDs, err := normalizeUUIDList(*req.MadridCountryIDs)
+			if err != nil {
+				return err
+			}
+			selection.madrid = madridIDs
+		}
+		if req.SingleCountryIDs != nil {
+			singleIDs, err := normalizeUUIDList(*req.SingleCountryIDs)
+			if err != nil {
+				return err
+			}
+			selection.single = singleIDs
+		}
+
+		countryIDs := selection.countryIDs()
+		if len(countryIDs) == 0 {
+			return ErrInvalidFormInput
 		}
 		countryIDsJSON, err := encodeJSONB(countryIDs)
 		if err != nil {
 			return fmt.Errorf("quotation: marshal country ids: %w", err)
 		}
+		madridCountryIDsJSON, err := encodeJSONB(selection.madrid)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal madrid country ids: %w", err)
+		}
+		singleCountryIDsJSON, err := encodeJSONB(selection.single)
+		if err != nil {
+			return fmt.Errorf("quotation: marshal single country ids: %w", err)
+		}
+		registrationMethodsJSON, err := encodeJSONB(selection.registrationMethods())
+		if err != nil {
+			return fmt.Errorf("quotation: marshal registration methods: %w", err)
+		}
 		patch["country_id"] = countryIDs[0]
 		patch["country_ids"] = countryIDsJSON
+		patch["madrid_country_ids"] = madridCountryIDsJSON
+		patch["single_country_ids"] = singleCountryIDsJSON
+		patch["registration_methods"] = registrationMethodsJSON
 	}
 	if req.ServiceTier != nil {
 		if !pricing.IsValidServiceTier(*req.ServiceTier) {
@@ -198,17 +263,6 @@ func (s *Service) UpdateDraft(ctx context.Context, id, actorID uuid.UUID, req Up
 			return fmt.Errorf("quotation: marshal nice category codes: %w", err)
 		}
 		patch["nice_category_codes"] = raw
-	}
-	if req.RegistrationMethods != nil {
-		methods, err := normalizeRegistrationMethods(*req.RegistrationMethods)
-		if err != nil {
-			return err
-		}
-		raw, err := encodeJSONB(methods)
-		if err != nil {
-			return fmt.Errorf("quotation: marshal registration methods: %w", err)
-		}
-		patch["registration_methods"] = raw
 	}
 	if req.AgentLevel != nil {
 		agentLevel, err := normalizeAgentLevel(*req.AgentLevel)
@@ -258,9 +312,8 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 
 	snap, err := s.calculateSnapshot(
 		ctx,
-		quotationCountryIDs(q),
+		quotationMethodCountrySelection(q),
 		q.ServiceTier,
-		quotationRegistrationMethods(q),
 		len(quotationNiceCategoryCodes(q)),
 	)
 	if err != nil {
@@ -289,43 +342,205 @@ func (s *Service) Submit(ctx context.Context, id, actorID uuid.UUID) (*Quotation
 
 func (s *Service) calculateSnapshot(
 	ctx context.Context,
-	countryIDs []uuid.UUID,
+	selection methodCountrySelection,
 	serviceTier string,
-	registrationMethods []string,
 	niceCategoryCount int,
 ) (Snapshot, error) {
 	var snap Snapshot
+	countryIDs := selection.countryIDs()
 	if len(countryIDs) == 0 {
 		return snap, ErrInvalidFormInput
 	}
-	methodSet, err := s.loadMethodPricing(ctx, countryIDs, registrationMethods)
-	if err != nil {
-		return snap, err
+	var madridSet pricing.MethodPricingSet
+	var madridMethodCountries []uuid.UUID
+	var madridLegacyCountries []uuid.UUID
+
+	if len(selection.madrid) > 0 {
+		var err error
+		madridSet, err = s.loadMethodPricing(ctx, selection.madrid, []string{pricing.RegistrationMethodMadrid})
+		if err != nil {
+			return snap, err
+		}
+		madridMethodCountries, madridLegacyCountries = splitMadridCoverage(madridSet.Madrid, selection.madrid)
 	}
-	if hasMethodPricing(methodSet) {
-		calc, err := pricing.CalculateMethodPricing(methodSet, pricing.MethodCalcInput{
-			CountryIDs:          countryIDs,
-			RegistrationMethods: registrationMethods,
+
+	var singleSet pricing.MethodPricingSet
+	var singleMethodCountries []uuid.UUID
+	var singleLegacyCountries []uuid.UUID
+	if len(selection.single) > 0 {
+		var err error
+		singleSet, err = s.loadMethodPricing(ctx, selection.single, []string{pricing.RegistrationMethodSingle})
+		if err != nil {
+			return snap, err
+		}
+		singleMethodCountries, singleLegacyCountries = splitSingleClassCoverage(singleSet.SingleClass, selection.single)
+	}
+
+	if len(madridMethodCountries) > 0 {
+		calc, err := pricing.CalculateMethodPricing(madridSet, pricing.MethodCalcInput{
+			CountryIDs:          madridMethodCountries,
+			RegistrationMethods: []string{pricing.RegistrationMethodMadrid},
 			NiceCategoryCount:   niceCategoryCount,
 		})
 		if err != nil {
 			if errors.Is(err, pricing.ErrNoMatchingEntries) {
 				return snap, ErrMissingPricing
 			}
-			return snap, fmt.Errorf("quotation: method pricing calculate: %w", err)
+			return snap, fmt.Errorf("quotation: madrid pricing calculate: %w", err)
 		}
 		for _, line := range calc.Lines {
-			snap.Lines = append(snap.Lines, calcLineToSnapshotLine(line))
+			snap.Lines = append(snap.Lines, lineToSnapshotLine(line))
 		}
-		snap.TotalCNYCents = calc.TotalCNYCents
-		snap.Signature = calc.Signature
-		return snap, nil
+		snap.TotalCNYCents += calc.TotalCNYCents
+	}
+	if len(singleMethodCountries) > 0 {
+		calc, err := pricing.CalculateMethodPricing(singleSet, pricing.MethodCalcInput{
+			CountryIDs:          singleMethodCountries,
+			RegistrationMethods: []string{pricing.RegistrationMethodSingle},
+			NiceCategoryCount:   niceCategoryCount,
+		})
+		if err != nil {
+			if errors.Is(err, pricing.ErrNoMatchingEntries) {
+				return snap, ErrMissingPricing
+			}
+			return snap, fmt.Errorf("quotation: single pricing calculate: %w", err)
+		}
+		for _, line := range calc.Lines {
+			snap.Lines = append(snap.Lines, lineToSnapshotLine(line))
+		}
+		snap.TotalCNYCents += calc.TotalCNYCents
 	}
 
+	sharedLegacyCountries := intersectCountryIDs(madridLegacyCountries, singleLegacyCountries)
+	if err := s.appendLegacySnapshotLines(ctx, &snap, sharedLegacyCountries, serviceTier, ""); err != nil {
+		return snap, err
+	}
+	if err := s.appendLegacySnapshotLines(
+		ctx,
+		&snap,
+		excludeCountryIDs(madridLegacyCountries, sharedLegacyCountries),
+		serviceTier,
+		pricing.RegistrationMethodMadrid,
+	); err != nil {
+		return snap, err
+	}
+	if err := s.appendLegacySnapshotLines(
+		ctx,
+		&snap,
+		excludeCountryIDs(singleLegacyCountries, sharedLegacyCountries),
+		serviceTier,
+		pricing.RegistrationMethodSingle,
+	); err != nil {
+		return snap, err
+	}
+
+	if len(snap.Lines) == 0 {
+		return snap, ErrMissingPricing
+	}
+	snap.Signature = computeMethodSnapshotSignature(niceCategoryCount, snap.Lines, snap.TotalCNYCents)
+	return snap, nil
+}
+
+func splitSingleClassCoverage(entries []pricing.SingleClassPricingEntry, countryIDs []uuid.UUID) ([]uuid.UUID, []uuid.UUID) {
+	activeByCountry := make(map[uuid.UUID]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.EffectiveTo != nil {
+			continue
+		}
+		activeByCountry[entry.CountryID] = struct{}{}
+	}
+	return splitCountriesByCoverage(countryIDs, func(countryID uuid.UUID) bool {
+		_, ok := activeByCountry[countryID]
+		return ok
+	})
+}
+
+func splitMadridCoverage(entries []pricing.MadridPricingEntry, countryIDs []uuid.UUID) ([]uuid.UUID, []uuid.UUID) {
+	hasBase := false
+	activeByCountry := make(map[uuid.UUID]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.EffectiveTo != nil {
+			continue
+		}
+		if entry.IsBaseFee {
+			hasBase = true
+			continue
+		}
+		if entry.CountryID != nil {
+			activeByCountry[*entry.CountryID] = struct{}{}
+		}
+	}
+	return splitCountriesByCoverage(countryIDs, func(countryID uuid.UUID) bool {
+		if !hasBase {
+			return false
+		}
+		_, ok := activeByCountry[countryID]
+		return ok
+	})
+}
+
+func splitCountriesByCoverage(
+	countryIDs []uuid.UUID,
+	hasCoverage func(uuid.UUID) bool,
+) ([]uuid.UUID, []uuid.UUID) {
+	methodCountries := make([]uuid.UUID, 0, len(countryIDs))
+	legacyCountries := make([]uuid.UUID, 0, len(countryIDs))
+	for _, countryID := range countryIDs {
+		if hasCoverage(countryID) {
+			methodCountries = append(methodCountries, countryID)
+			continue
+		}
+		legacyCountries = append(legacyCountries, countryID)
+	}
+	return methodCountries, legacyCountries
+}
+
+func intersectCountryIDs(left, right []uuid.UUID) []uuid.UUID {
+	rightSet := make(map[uuid.UUID]struct{}, len(right))
+	for _, countryID := range right {
+		rightSet[countryID] = struct{}{}
+	}
+	out := make([]uuid.UUID, 0)
+	seen := make(map[uuid.UUID]struct{}, len(left))
+	for _, countryID := range left {
+		if _, ok := rightSet[countryID]; !ok {
+			continue
+		}
+		if _, ok := seen[countryID]; ok {
+			continue
+		}
+		seen[countryID] = struct{}{}
+		out = append(out, countryID)
+	}
+	return out
+}
+
+func excludeCountryIDs(countryIDs, excluded []uuid.UUID) []uuid.UUID {
+	excludedSet := make(map[uuid.UUID]struct{}, len(excluded))
+	for _, countryID := range excluded {
+		excludedSet[countryID] = struct{}{}
+	}
+	out := make([]uuid.UUID, 0, len(countryIDs))
+	for _, countryID := range countryIDs {
+		if _, ok := excludedSet[countryID]; ok {
+			continue
+		}
+		out = append(out, countryID)
+	}
+	return out
+}
+
+func (s *Service) appendLegacySnapshotLines(
+	ctx context.Context,
+	snap *Snapshot,
+	countryIDs []uuid.UUID,
+	serviceTier string,
+	registrationMethod string,
+) error {
 	for _, countryID := range countryIDs {
 		entries, err := s.pricingRepo.ListActive(ctx, &countryID)
 		if err != nil {
-			return snap, err
+			return err
 		}
 		calc, err := pricing.Calculate(entries, pricing.CalcInput{
 			CountryID:   countryID,
@@ -333,25 +548,16 @@ func (s *Service) calculateSnapshot(
 		})
 		if err != nil {
 			if errors.Is(err, pricing.ErrNoMatchingEntries) {
-				return snap, ErrMissingPricing
+				return ErrMissingPricing
 			}
-			return snap, fmt.Errorf("quotation: pricing calculate: %w", err)
+			return fmt.Errorf("quotation: pricing calculate: %w", err)
 		}
-		for _, l := range calc.Lines {
-			sourceID := l.SourcePricingEntryID
-			line := calcLineToSnapshotLine(l)
-			line.SourcePricingEntryID = &sourceID
-			snap.Lines = append(snap.Lines, line)
+		for _, line := range calc.Lines {
+			snap.Lines = append(snap.Lines, legacyLineToSnapshotLine(line, countryID, registrationMethod))
 		}
 		snap.TotalCNYCents += calc.TotalCNYCents
-		if len(countryIDs) == 1 {
-			snap.Signature = calc.Signature
-		}
 	}
-	if len(countryIDs) > 1 {
-		snap.Signature = computeQuotationSignature(countryIDs, serviceTier, snap.Lines, snap.TotalCNYCents)
-	}
-	return snap, nil
+	return nil
 }
 
 func (s *Service) loadMethodPricing(ctx context.Context, countryIDs []uuid.UUID, registrationMethods []string) (pricing.MethodPricingSet, error) {
@@ -388,11 +594,7 @@ func (s *Service) loadMethodPricing(ctx context.Context, countryIDs []uuid.UUID,
 	return set, nil
 }
 
-func hasMethodPricing(set pricing.MethodPricingSet) bool {
-	return len(set.Madrid) > 0 || len(set.SingleClass) > 0
-}
-
-func calcLineToSnapshotLine(line pricing.CalcLine) SnapshotLine {
+func lineToSnapshotLine(line pricing.CalcLine) SnapshotLine {
 	return SnapshotLine{
 		FeeItem:             line.FeeItem,
 		AmountCNYCents:      line.AmountCNYCents,
@@ -404,6 +606,18 @@ func calcLineToSnapshotLine(line pricing.CalcLine) SnapshotLine {
 		Quantity:            line.Quantity,
 		UnitAmountCNYCents:  line.UnitAmountCNYCents,
 		OfficialFeeCHFCents: line.OfficialFeeCHFCents,
+	}
+}
+
+func legacyLineToSnapshotLine(line pricing.CalcLine, countryID uuid.UUID, registrationMethod string) SnapshotLine {
+	sourceID := line.SourcePricingEntryID
+	cid := countryID
+	return SnapshotLine{
+		FeeItem:              line.FeeItem,
+		AmountCNYCents:       line.AmountCNYCents,
+		SourcePricingEntryID: &sourceID,
+		RegistrationMethod:   registrationMethod,
+		CountryID:            &cid,
 	}
 }
 
@@ -483,6 +697,8 @@ func (s *Service) Copy(ctx context.Context, sourceID, actorID uuid.UUID) (*Quota
 		CustomerID:          src.CustomerID,
 		CountryID:           src.CountryID,
 		CountryIDs:          src.CountryIDs,
+		MadridCountryIDs:    src.MadridCountryIDs,
+		SingleCountryIDs:    src.SingleCountryIDs,
 		NiceCategoryCodes:   src.NiceCategoryCodes,
 		RegistrationMethods: src.RegistrationMethods,
 		AgentLevel:          src.AgentLevel,
@@ -616,15 +832,17 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 	if !pricing.IsValidServiceTier(req.ServiceTier) {
 		return nil, ErrInvalidTier
 	}
-	countryIDs, err := normalizeCountryIDs(req.CountryID, req.CountryIDs)
-	if err != nil {
-		return nil, err
-	}
 	niceCodes, err := normalizeNiceCategoryCodes(req.NiceCategoryCodes)
 	if err != nil {
 		return nil, err
 	}
-	registrationMethods, err := normalizeRegistrationMethods(req.RegistrationMethods)
+	selection, err := normalizeMethodCountrySelection(
+		req.CountryID,
+		req.CountryIDs,
+		req.RegistrationMethods,
+		req.MadridCountryIDs,
+		req.SingleCountryIDs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -639,7 +857,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*PreviewResp
 		return nil, ErrNotFound
 	}
 
-	snap, err := s.calculateSnapshot(ctx, countryIDs, req.ServiceTier, registrationMethods, len(niceCodes))
+	snap, err := s.calculateSnapshot(ctx, selection, req.ServiceTier, len(niceCodes))
 	if err != nil {
 		if errors.Is(err, ErrMissingPricing) {
 			return nil, ErrMissingPricing
@@ -665,9 +883,11 @@ func (s *Service) History(ctx context.Context, id uuid.UUID) ([]StatusHistory, e
 func ToResponse(q *Quotation) Response {
 	out := Response{
 		ID: q.ID, CustomerID: q.CustomerID, CountryID: q.CountryID,
-		CountryIDs:          decodeJSONB[uuid.UUID](q.CountryIDs),
+		CountryIDs:          quotationCountryIDs(q),
+		MadridCountryIDs:    quotationMadridCountryIDs(q),
+		SingleCountryIDs:    quotationSingleCountryIDs(q),
 		NiceCategoryCodes:   decodeJSONB[int](q.NiceCategoryCodes),
-		RegistrationMethods: decodeJSONB[string](q.RegistrationMethods),
+		RegistrationMethods: quotationRegistrationMethods(q),
 		AgentLevel:          q.AgentLevel,
 		ServiceTier:         q.ServiceTier, Status: q.Status,
 		TotalCNYCents: q.TotalCNYCents, Signature: q.Signature,

@@ -27,7 +27,9 @@
 <h2>1. 基本信息 / Basic Info</h2>
 <table class="kv">
   <tr><td>客户 Customer</td><td>{{.CustomerName}}</td></tr>
-  <tr><td>国家 Country</td><td>{{.CountryCode}} — {{.CountryNameZH}} / {{.CountryNameEN}}</td></tr>
+  <tr><td>国家 Countries</td><td>{{fmtCountryListBilingual .Countries}}</td></tr>
+  {{if .MadridCountries}}<tr><td>马德里注册 Madrid Registration</td><td>{{fmtCountryListBilingual .MadridCountries}}</td></tr>{{end}}
+  {{if .SingleCountries}}<tr><td>单一注册 Single Filing</td><td>{{fmtCountryListBilingual .SingleCountries}}</td></tr>{{end}}
   <tr><td>服务级别 Service Tier</td><td>{{.ServiceTier}}</td></tr>
   <tr><td>状态 Status</td><td>{{.Status}}</td></tr>
   {{if .SubmittedAt}}<tr><td>提交时间 Submitted</td><td>{{.SubmittedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}

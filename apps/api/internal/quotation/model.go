@@ -28,6 +28,8 @@ type Quotation struct {
 	CustomerID          uuid.UUID   `gorm:"type:uuid;not null;index"`
 	CountryID           uuid.UUID   `gorm:"type:uuid;not null"`
 	CountryIDs          audit.JSONB `gorm:"column:country_ids;type:jsonb"`
+	MadridCountryIDs    audit.JSONB `gorm:"column:madrid_country_ids;type:jsonb"`
+	SingleCountryIDs    audit.JSONB `gorm:"column:single_country_ids;type:jsonb"`
 	NiceCategoryCodes   audit.JSONB `gorm:"column:nice_category_codes;type:jsonb"`
 	RegistrationMethods audit.JSONB `gorm:"column:registration_methods;type:jsonb"`
 	AgentLevel          string      `gorm:"not null;default:agent_a"`
