@@ -3,39 +3,53 @@ package export
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/xml"
+	_ "embed"
 	"fmt"
 	"html"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+//go:embed ABBC-国际商标报价模版.docx
+var docxTemplateBytes []byte
 
 // QuotationView is the render input. Caller resolves it from the
 // quotation + customer + country repos; the renderer has no DB access.
 type QuotationView struct {
-	QuotationID      string
-	QuotationIDShort string // first 8 chars; filled by RenderHTML if blank
-	Status           string
-	ServiceTier      string
-	CustomerName     string
-	Countries        []CountryView
-	MadridCountries  []CountryView
-	SingleCountries  []CountryView
-	CountryNameZH    string
-	CountryNameEN    string
-	CountryCode      string
-	TotalCNYCents    int64
-	Signature        string
-	Lines            []ExportLine
-	SubmittedAt      *time.Time
-	ReviewedAt       *time.Time
-	ReviewComment    string
-	Notes            string
-	GeneratedAt      time.Time
+	QuotationID       string
+	QuotationIDShort  string // first 8 chars; filled by RenderHTML if blank
+	Status            string
+	ServiceTier       string
+	CustomerName      string
+	Countries         []CountryView
+	CountrySummary    []CountryView
+	MadridCountries   []CountryView
+	SingleCountries   []CountryView
+	CountryNameZH     string
+	CountryNameEN     string
+	CountryCode       string
+	NiceCategoryCodes []int
+	TotalCNYCents     int64
+	Signature         string
+	Lines             []ExportLine
+	SubmittedAt       *time.Time
+	ReviewedAt        *time.Time
+	ReviewComment     string
+	Notes             string
+	GeneratedAt       time.Time
+	SummaryNarrative  string
+	MadridQuote       *MadridQuoteSection
+	SingleQuote       *SingleQuoteSection
+	SummaryQuote      SummaryQuoteSection
 }
 
 type CountryView struct {
+	ID     uuid.UUID
 	Code   string
 	NameZH string
 	NameEN string
@@ -52,7 +66,60 @@ type ExportLine struct {
 	AmountCNYCents      int64
 }
 
+type MadridQuoteSection struct {
+	BaseOfficialFeeCHFCents int64
+	BaseAgencyFeeCNYCents   int64
+	BaseFeeNote             string
+	Rows                    []MadridQuoteRow
+	OfficialTotalCHFCents   int64
+	OfficialTotalCNYCents   int64
+	AgencyTotalCNYCents     int64
+	SubtotalCNYCents        int64
+	TotalWithTaxCNYCents    int64
+}
+
+type MadridQuoteRow struct {
+	SequenceNo          int
+	CountryArea         string
+	OfficialFeeCHFCents int64
+	AgencyFeeCNYCents   int64
+	ValidityText        string
+}
+
+type SingleQuoteSection struct {
+	Rows          []SingleQuoteRow
+	TotalCNYCents int64
+}
+
+type SingleQuoteRow struct {
+	SequenceNo              int
+	CountryArea             string
+	ApplicationFeeCNYCents  int64
+	NotarizationFeeText     string
+	NotarizationFeeCNYCents int64
+	SubmissionMethodText    string
+	RegistrationMonthsText  string
+	ValidityYearsText       string
+}
+
+type SummaryQuoteSection struct {
+	Rows          []SummaryQuoteRow
+	TotalCNYCents int64
+}
+
+type SummaryQuoteRow struct {
+	MethodLabel        string
+	CategoryCodeText   string
+	CountryAreaSummary string
+	FeeCNYCents        int64
+}
+
+var textRunRE = regexp.MustCompile(`(?s)<w:t\b[^>]*>(.*?)</w:t>`)
+
 func (v QuotationView) allCountries() []CountryView {
+	if len(v.CountrySummary) > 0 {
+		return v.CountrySummary
+	}
 	if len(v.Countries) > 0 {
 		return v.Countries
 	}
@@ -66,29 +133,16 @@ func (v QuotationView) allCountries() []CountryView {
 	}}
 }
 
-// RenderDOCX writes a .docx file's bytes to w. Format is bilingual —
-// labels render in 中文 and English, values stay as-is.
+// RenderDOCX writes a .docx file based on the bundled quotation template.
+// The template structure and styling are preserved; only dynamic text and
+// table rows are replaced.
 func RenderDOCX(w io.Writer, v QuotationView) error {
-	zw := zip.NewWriter(w)
-	defer zw.Close()
-
-	// 1. [Content_Types].xml — mandatory.
-	if err := writeFile(zw, "[Content_Types].xml", contentTypesXML); err != nil {
-		return err
-	}
-	// 2. _rels/.rels — mandatory root rels pointing to word/document.xml.
-	if err := writeFile(zw, "_rels/.rels", rootRelsXML); err != nil {
-		return err
-	}
-	// 3. word/document.xml — the body content.
-	body, err := renderBody(v)
+	buf, err := renderTemplateDOCX(normalizeDOCXView(v))
 	if err != nil {
 		return err
 	}
-	if err := writeFile(zw, "word/document.xml", body); err != nil {
-		return err
-	}
-	return nil
+	_, err = w.Write(buf)
+	return err
 }
 
 func writeFile(zw *zip.Writer, name, body string) error {
@@ -100,139 +154,899 @@ func writeFile(zw *zip.Writer, name, body string) error {
 	return err
 }
 
-const contentTypesXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>`
-
-const rootRelsXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`
-
-// renderBody builds word/document.xml. We don't use html/template to
-// avoid any accidental HTML escaping in XML contexts — every value is
-// explicitly escaped via xml-safe helpers.
-func renderBody(v QuotationView) (string, error) {
-	var b bytes.Buffer
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:body>`)
-
-	heading(&b, "报价书 / Quotation", 28, true)
-	para(&b, fmt.Sprintf("编号 / No.: %s", short(v.QuotationID)))
-	para(&b, fmt.Sprintf("生成时间 / Generated: %s", v.GeneratedAt.Format("2006-01-02 15:04")))
-	para(&b, "")
-
-	heading(&b, "1. 基本信息 / Basic Info", 20, false)
-	kv(&b, "客户 / Customer", v.CustomerName)
-	kv(&b, "国家 / Countries", fmtCountryListBilingual(v.allCountries()))
-	if len(v.MadridCountries) > 0 {
-		kv(&b, "马德里注册 / Madrid Registration", fmtCountryListBilingual(v.MadridCountries))
+func renderTemplateDOCX(v QuotationView) ([]byte, error) {
+	docXML, err := renderTemplateDocument(v)
+	if err != nil {
+		return nil, err
 	}
-	if len(v.SingleCountries) > 0 {
-		kv(&b, "单一注册 / Single Filing", fmtCountryListBilingual(v.SingleCountries))
-	}
-	kv(&b, "服务级别 / Service Tier", v.ServiceTier)
-	kv(&b, "状态 / Status", v.Status)
-	if v.SubmittedAt != nil {
-		kv(&b, "提交时间 / Submitted At", v.SubmittedAt.Format("2006-01-02 15:04"))
-	}
-	if v.ReviewedAt != nil {
-		kv(&b, "审核时间 / Reviewed At", v.ReviewedAt.Format("2006-01-02 15:04"))
-	}
-	if v.ReviewComment != "" {
-		kv(&b, "审核备注 / Review Comment", v.ReviewComment)
-	}
-	if v.Notes != "" {
-		kv(&b, "备注 / Notes", v.Notes)
-	}
-	para(&b, "")
 
-	heading(&b, "2. 报价明细 / Fee Breakdown", 20, false)
-	// Table header.
-	b.WriteString(`<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/></w:tblPr>`)
-	tableRow(&b, []string{
-		"注册方式 / Method",
-		"国家/地区 / Country",
-		"费用项 / Fee Item",
-		"数量 / Qty",
-		"单价 / Unit (CNY)",
-		"官费 / Official (CHF)",
-		"金额 / Amount (CNY)",
-	}, true)
-	for _, l := range v.Lines {
-		tableRow(&b, []string{
-			l.RegistrationMethod,
-			l.CountryArea,
-			l.FeeItem,
-			fmtQuantity(l.Quantity),
-			fmtCNYPtr(l.UnitAmountCNYCents),
-			fmtCHFPtr(l.OfficialFeeCHFCents),
-			fmtCNY(l.AmountCNYCents),
-		}, false)
+	zr, err := zip.NewReader(bytes.NewReader(docxTemplateBytes), int64(len(docxTemplateBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("export: open docx template: %w", err)
 	}
-	tableRow(&b, []string{"", "", "合计 / Total", "", "", "", fmtCNY(v.TotalCNYCents)}, true)
-	b.WriteString(`</w:tbl>`)
-	para(&b, "")
 
-	heading(&b, "3. 签名 / Signature", 20, false)
-	para(&b, v.Signature)
-	para(&b, "")
-	para(&b, "—— 本文档由系统自动生成 / Auto-generated document ——")
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	for _, f := range zr.File {
+		var payload []byte
+		if f.Name == "word/document.xml" {
+			payload = []byte(docXML)
+		} else {
+			rc, err := f.Open()
+			if err != nil {
+				_ = zw.Close()
+				return nil, fmt.Errorf("export: open template member %s: %w", f.Name, err)
+			}
+			payload, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				_ = zw.Close()
+				return nil, fmt.Errorf("export: read template member %s: %w", f.Name, err)
+			}
+		}
+		h := f.FileHeader
+		wc, err := zw.CreateHeader(&h)
+		if err != nil {
+			_ = zw.Close()
+			return nil, fmt.Errorf("export: create zip member %s: %w", f.Name, err)
+		}
+		if _, err := wc.Write(payload); err != nil {
+			_ = zw.Close()
+			return nil, fmt.Errorf("export: write zip member %s: %w", f.Name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
 
-	b.WriteString(`</w:body></w:document>`)
+func renderTemplateDocument(v QuotationView) (string, error) {
+	raw, err := templateDocumentXML()
+	if err != nil {
+		return "", err
+	}
+	openDocument, documentChildren, closeDocument, err := splitElementChildren(raw, "w:document")
+	if err != nil {
+		return "", err
+	}
+	bodyIndex := -1
+	for i, child := range documentChildren {
+		if fragmentName(child) == "w:body" {
+			bodyIndex = i
+			break
+		}
+	}
+	if bodyIndex < 0 {
+		return "", fmt.Errorf("export: template body missing")
+	}
+	openBody, bodyChildren, closeBody, err := splitElementChildren(documentChildren[bodyIndex], "w:body")
+	if err != nil {
+		return "", err
+	}
+	if len(bodyChildren) <= docxSummaryTableIndex {
+		return "", fmt.Errorf("export: unexpected template body size %d", len(bodyChildren))
+	}
+
+	var errReplace error
+	bodyChildren[docxCustomerParagraphIndex], errReplace = replaceTextRuns(
+		bodyChildren[docxCustomerParagraphIndex],
+		[]string{"致", ":", " ", v.CustomerName},
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+	bodyChildren[docxCategoryParagraphIndex], errReplace = replaceTextRuns(
+		bodyChildren[docxCategoryParagraphIndex],
+		[]string{"拟注册类别：第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+	bodyChildren[docxCountryParagraphIndex], errReplace = replaceTextRuns(
+		bodyChildren[docxCountryParagraphIndex],
+		[]string{
+			"拟注册国家",
+			"/",
+			"地区：" + fmtCountryListZH(v.allCountries()) + "（共",
+			strconv.Itoa(len(v.allCountries())),
+			"个国家",
+			"/",
+			"地区）",
+		},
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+
+	nextNumber := 0
+	madridTitle := ""
+	singleTitle := ""
+	summaryTitle := ""
+	if v.MadridQuote != nil {
+		madridTitle = sectionNumber(nextNumber)
+		nextNumber++
+	}
+	if v.SingleQuote != nil {
+		singleTitle = sectionNumber(nextNumber)
+		nextNumber++
+	}
+	summaryTitle = sectionNumber(nextNumber)
+
+	if v.MadridQuote != nil {
+		bodyChildren[docxMadridTitleIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxMadridTitleIndex],
+			[]string{madridTitle + "通过马德里方式申请"},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxMadridCountryIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxMadridCountryIndex],
+			[]string{
+				"1.",
+				"国家",
+				"（共",
+				strconv.Itoa(len(v.MadridCountries)),
+				"个国家",
+				"/",
+				"地区）",
+				"：",
+				fmtCountryListZH(v.MadridCountries),
+			},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxMadridCategoryIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxMadridCategoryIndex],
+			[]string{"2.", "类别：", "第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxMadridTableIndex], errReplace = renderMadridTable(bodyChildren[docxMadridTableIndex], v.MadridQuote)
+		if errReplace != nil {
+			return "", errReplace
+		}
+	}
+
+	if v.SingleQuote != nil {
+		bodyChildren[docxSingleTitleIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxSingleTitleIndex],
+			[]string{singleTitle + "通过单一注册方式申请"},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxSingleCountryIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxSingleCountryIndex],
+			[]string{
+				"1.",
+				"国家",
+				"（共",
+				strconv.Itoa(len(v.SingleCountries)),
+				"个国家",
+				"/",
+				"地区）",
+				"：",
+				fmtCountryListZH(v.SingleCountries),
+			},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxSingleCategoryIndex], errReplace = replaceTextRuns(
+			bodyChildren[docxSingleCategoryIndex],
+			[]string{"2.", "类别：", "第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
+		)
+		if errReplace != nil {
+			return "", errReplace
+		}
+		bodyChildren[docxSingleTableIndex], errReplace = renderSingleTable(bodyChildren[docxSingleTableIndex], v.SingleQuote)
+		if errReplace != nil {
+			return "", errReplace
+		}
+	}
+
+	bodyChildren[docxSummaryTitleIndex], errReplace = replaceTextRuns(
+		bodyChildren[docxSummaryTitleIndex],
+		[]string{summaryTitle + "总的报价方案"},
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+	bodyChildren[docxSummaryParagraphIndex], errReplace = replaceFirstTextAndClearRest(
+		bodyChildren[docxSummaryParagraphIndex],
+		v.SummaryNarrative,
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+	bodyChildren[docxSummaryTableIndex], errReplace = renderSummaryTable(bodyChildren[docxSummaryTableIndex], v.SummaryQuote)
+	if errReplace != nil {
+		return "", errReplace
+	}
+
+	if v.MadridQuote == nil {
+		bodyChildren = removeChildRange(bodyChildren, docxMadridTitleIndex, docxMadridSpacerEndIndex)
+	}
+	if v.SingleQuote == nil {
+		start := docxSingleTitleIndex
+		if v.MadridQuote == nil {
+			start = docxSingleTitleIndex - (docxMadridSpacerEndIndex - docxMadridTitleIndex + 1)
+		}
+		bodyChildren = removeChildRange(bodyChildren, start, start+docxSingleBlockSize-1)
+	}
+
+	documentChildren[bodyIndex] = openBody + strings.Join(bodyChildren, "") + closeBody
+	return openDocument + strings.Join(documentChildren, "") + closeDocument, nil
+}
+
+func templateDocumentXML() (string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(docxTemplateBytes), int64(len(docxTemplateBytes)))
+	if err != nil {
+		return "", fmt.Errorf("export: open template zip: %w", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", fmt.Errorf("export: open template document: %w", err)
+		}
+		defer rc.Close()
+		raw, err := io.ReadAll(rc)
+		if err != nil {
+			return "", fmt.Errorf("export: read template document: %w", err)
+		}
+		return string(raw), nil
+	}
+	return "", fmt.Errorf("export: template document.xml missing")
+}
+
+func normalizeDOCXView(v QuotationView) QuotationView {
+	v = normalizeCountryLists(v)
+	if v.MadridQuote != nil {
+		if v.MadridQuote.BaseFeeNote == "" {
+			v.MadridQuote.BaseFeeNote = "（黑白商标）"
+		}
+		if v.MadridQuote.SubtotalCNYCents == 0 {
+			v.MadridQuote.SubtotalCNYCents = v.MadridQuote.OfficialTotalCNYCents + v.MadridQuote.AgencyTotalCNYCents
+		}
+		if v.MadridQuote.TotalWithTaxCNYCents == 0 {
+			v.MadridQuote.TotalWithTaxCNYCents = addVAT6(v.MadridQuote.SubtotalCNYCents)
+		}
+		for i := range v.MadridQuote.Rows {
+			if v.MadridQuote.Rows[i].ValidityText == "" {
+				v.MadridQuote.Rows[i].ValidityText = "10年"
+			}
+		}
+	}
+	if v.SingleQuote != nil {
+		for i := range v.SingleQuote.Rows {
+			if v.SingleQuote.Rows[i].SubmissionMethodText == "" {
+				v.SingleQuote.Rows[i].SubmissionMethodText = "一标一类"
+			}
+			if v.SingleQuote.Rows[i].NotarizationFeeText == "" {
+				v.SingleQuote.Rows[i].NotarizationFeeText = "0"
+			}
+		}
+		if v.SingleQuote.TotalCNYCents == 0 {
+			for _, row := range v.SingleQuote.Rows {
+				v.SingleQuote.TotalCNYCents += row.ApplicationFeeCNYCents + row.NotarizationFeeCNYCents
+			}
+		}
+	}
+	if len(v.SummaryQuote.Rows) == 0 {
+		if v.MadridQuote != nil {
+			v.SummaryQuote.Rows = append(v.SummaryQuote.Rows, SummaryQuoteRow{
+				MethodLabel:        "马德里",
+				CategoryCodeText:   niceCategoryCodeText(v.NiceCategoryCodes),
+				CountryAreaSummary: countryAreaSummary(v.MadridCountries),
+				FeeCNYCents:        v.MadridQuote.TotalWithTaxCNYCents,
+			})
+		}
+		if v.SingleQuote != nil {
+			v.SummaryQuote.Rows = append(v.SummaryQuote.Rows, SummaryQuoteRow{
+				MethodLabel:        "单一国",
+				CategoryCodeText:   niceCategoryCodeText(v.NiceCategoryCodes),
+				CountryAreaSummary: countryAreaSummary(v.SingleCountries),
+				FeeCNYCents:        v.SingleQuote.TotalCNYCents,
+			})
+		}
+	}
+	if v.SummaryQuote.TotalCNYCents == 0 {
+		for _, row := range v.SummaryQuote.Rows {
+			v.SummaryQuote.TotalCNYCents += row.FeeCNYCents
+		}
+	}
+	if v.SummaryNarrative == "" {
+		v.SummaryNarrative = buildSummaryNarrative(v)
+	}
+	return v
+}
+
+func renderMadridTable(fragment string, section *MadridQuoteSection) (string, error) {
+	prefix, rows, suffix, err := splitTable(fragment)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) < 6 {
+		return "", fmt.Errorf("export: unexpected madrid table rows %d", len(rows))
+	}
+	header := rows[0]
+	baseTemplate := rows[1]
+	countryTemplate := rows[2]
+	officialSubtotalTemplate := rows[len(rows)-3]
+	agencySubtotalTemplate := rows[len(rows)-2]
+	totalTemplate := rows[len(rows)-1]
+
+	baseRow, err := replaceTextRuns(baseTemplate, []string{
+		"/",
+		"基础费用",
+		formatWholeAmount(section.BaseOfficialFeeCHFCents),
+		section.BaseFeeNote,
+		formatWholeAmount(section.BaseAgencyFeeCNYCents),
+	})
+	if err != nil {
+		return "", err
+	}
+	newRows := []string{header, baseRow}
+	for _, row := range section.Rows {
+		years, suffixText := splitYearText(row.ValidityText)
+		replaced, err := replaceTextRuns(countryTemplate, []string{
+			strconv.Itoa(row.SequenceNo),
+			row.CountryArea,
+			formatWholeAmount(row.OfficialFeeCHFCents),
+			formatWholeAmount(row.AgencyFeeCNYCents),
+			years,
+			suffixText,
+		})
+		if err != nil {
+			return "", err
+		}
+		newRows = append(newRows, replaced)
+	}
+
+	rateText := formatCHFCNYRate(section.OfficialTotalCHFCents, section.OfficialTotalCNYCents)
+	officialSubtotal, err := replaceTextRuns(officialSubtotalTemplate, []string{
+		"官费小计",
+		formatWholeAmount(section.OfficialTotalCHFCents),
+		"瑞郎，合",
+		formatWholeAmount(section.OfficialTotalCNYCents),
+		"元人民币",
+		"【",
+		"1",
+		"瑞士法郎",
+		"=" + rateText,
+		"元人民币】",
+	})
+	if err != nil {
+		return "", err
+	}
+	agencySubtotal, err := replaceTextRuns(agencySubtotalTemplate, []string{
+		"代理费小计",
+		formatWholeAmount(section.AgencyTotalCNYCents),
+		"元人民币",
+	})
+	if err != nil {
+		return "", err
+	}
+	totalRow, err := replaceTextRuns(totalTemplate, []string{
+		"合计（",
+		"RMB",
+		"）：",
+		formatWholeAmount(section.SubtotalCNYCents),
+		"元人民币（不含税）",
+		"/" + formatWholeAmount(section.TotalWithTaxCNYCents),
+		"元人民币（含税，",
+		"6%",
+		"）",
+	})
+	if err != nil {
+		return "", err
+	}
+	newRows = append(newRows, officialSubtotal, agencySubtotal, totalRow)
+	return prefix + strings.Join(newRows, "") + suffix, nil
+}
+
+func renderSingleTable(fragment string, section *SingleQuoteSection) (string, error) {
+	prefix, rows, suffix, err := splitTable(fragment)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) < 3 {
+		return "", fmt.Errorf("export: unexpected single table rows %d", len(rows))
+	}
+	header := rows[0]
+	rowTemplate := rows[1]
+	totalTemplate := rows[len(rows)-1]
+
+	newRows := []string{header}
+	for _, row := range section.Rows {
+		replaced, err := replaceTextRuns(rowTemplate, []string{
+			strconv.Itoa(row.SequenceNo),
+			row.CountryArea,
+			formatWholeAmount(row.ApplicationFeeCNYCents),
+			row.NotarizationFeeText,
+			row.SubmissionMethodText,
+			row.RegistrationMonthsText,
+			row.ValidityYearsText,
+		})
+		if err != nil {
+			return "", err
+		}
+		newRows = append(newRows, replaced)
+	}
+	totalRow, err := replaceTextRuns(totalTemplate, []string{
+		"合计（",
+		"RMB",
+		"）：",
+		formatWholeAmount(section.TotalCNYCents),
+		"【含税，",
+		"6%",
+		"】",
+	})
+	if err != nil {
+		return "", err
+	}
+	newRows = append(newRows, totalRow)
+	return prefix + strings.Join(newRows, "") + suffix, nil
+}
+
+func renderSummaryTable(fragment string, section SummaryQuoteSection) (string, error) {
+	prefix, rows, suffix, err := splitTable(fragment)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) < 4 {
+		return "", fmt.Errorf("export: unexpected summary table rows %d", len(rows))
+	}
+	header := rows[0]
+	madridTemplate := rows[1]
+	singleTemplate := rows[2]
+	totalTemplate := rows[len(rows)-1]
+
+	newRows := []string{header}
+	for _, row := range section.Rows {
+		templateRow := madridTemplate
+		if row.MethodLabel == "单一国" {
+			templateRow = singleTemplate
+		}
+		replaced, err := replaceTextRuns(templateRow, []string{
+			row.MethodLabel,
+			row.CategoryCodeText,
+			row.CountryAreaSummary,
+			"",
+			"",
+			"",
+			"",
+			formatWholeAmount(row.FeeCNYCents),
+		})
+		if err != nil {
+			return "", err
+		}
+		newRows = append(newRows, replaced)
+	}
+	totalRow, err := replaceTextRuns(totalTemplate, []string{
+		"合计（",
+		"RMB",
+		"）：",
+		formatWholeAmount(section.TotalCNYCents),
+	})
+	if err != nil {
+		return "", err
+	}
+	newRows = append(newRows, totalRow)
+	return prefix + strings.Join(newRows, "") + suffix, nil
+}
+
+func splitTable(fragment string) (string, []string, string, error) {
+	open, children, close, err := splitElementChildren(fragment, "w:tbl")
+	if err != nil {
+		return "", nil, "", err
+	}
+	var leading []string
+	var rows []string
+	var trailing []string
+	seenRows := false
+	for _, child := range children {
+		if fragmentName(child) == "w:tr" {
+			seenRows = true
+			rows = append(rows, child)
+			continue
+		}
+		if !seenRows {
+			leading = append(leading, child)
+			continue
+		}
+		trailing = append(trailing, child)
+	}
+	return open + strings.Join(leading, ""), rows, strings.Join(trailing, "") + close, nil
+}
+
+func splitElementChildren(fragment string, wantRoot string) (string, []string, string, error) {
+	rootName, open, inner, close, err := splitRootElement(fragment)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if wantRoot != "" && rootName != wantRoot {
+		return "", nil, "", fmt.Errorf("export: expected root %s, got %s", wantRoot, rootName)
+	}
+	children, err := splitDirectChildren(inner)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return open, children, close, nil
+}
+
+func splitRootElement(fragment string) (string, string, string, string, error) {
+	start := strings.IndexByte(fragment, '<')
+	if start < 0 {
+		return "", "", "", "", fmt.Errorf("export: missing root start tag")
+	}
+	if strings.HasPrefix(fragment[start:], "<?xml") {
+		prologEnd := strings.Index(fragment[start:], "?>")
+		if prologEnd < 0 {
+			return "", "", "", "", fmt.Errorf("export: unterminated xml declaration")
+		}
+		start += prologEnd + 2
+		for start < len(fragment) && isXMLSpace(fragment[start]) {
+			start++
+		}
+		if start >= len(fragment) || fragment[start] != '<' {
+			return "", "", "", "", fmt.Errorf("export: missing root element after xml declaration")
+		}
+	}
+	end, err := findTagEnd(fragment, start)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	rootName := tagName(fragment[start+1 : end])
+	closeTag := "</" + rootName + ">"
+	closeStart := strings.LastIndex(fragment, closeTag)
+	if closeStart < 0 {
+		return "", "", "", "", fmt.Errorf("export: missing closing tag %s", closeTag)
+	}
+	return rootName, fragment[:end+1], fragment[end+1 : closeStart], fragment[closeStart:], nil
+}
+
+func splitDirectChildren(raw string) ([]string, error) {
+	children := make([]string, 0)
+	for i := 0; i < len(raw); {
+		for i < len(raw) && isXMLSpace(raw[i]) {
+			i++
+		}
+		if i >= len(raw) {
+			break
+		}
+		if raw[i] != '<' {
+			return nil, fmt.Errorf("export: unexpected non-tag content near %q", raw[i:])
+		}
+		elem, next, err := consumeElement(raw, i)
+		if err != nil {
+			return nil, err
+		}
+		children = append(children, elem)
+		i = next
+	}
+	return children, nil
+}
+
+func consumeElement(raw string, start int) (string, int, error) {
+	end, err := findTagEnd(raw, start)
+	if err != nil {
+		return "", 0, err
+	}
+	tag := strings.TrimSpace(raw[start+1 : end])
+	if strings.HasSuffix(tag, "/") {
+		return raw[start : end+1], end + 1, nil
+	}
+	depth := 1
+	i := end + 1
+	for depth > 0 {
+		next := strings.IndexByte(raw[i:], '<')
+		if next < 0 {
+			return "", 0, fmt.Errorf("export: unterminated element starting %q", raw[start:])
+		}
+		i += next
+		tagEnd, err := findTagEnd(raw, i)
+		if err != nil {
+			return "", 0, err
+		}
+		tagBody := strings.TrimSpace(raw[i+1 : tagEnd])
+		switch {
+		case strings.HasPrefix(tagBody, "/"):
+			depth--
+		case strings.HasSuffix(tagBody, "/"):
+			// self-closing nested tag
+		default:
+			depth++
+		}
+		i = tagEnd + 1
+	}
+	return raw[start:i], i, nil
+}
+
+func findTagEnd(raw string, start int) (int, error) {
+	var quote byte
+	for i := start + 1; i < len(raw); i++ {
+		switch raw[i] {
+		case '\'', '"':
+			if quote == 0 {
+				quote = raw[i]
+			} else if quote == raw[i] {
+				quote = 0
+			}
+		case '>':
+			if quote == 0 {
+				return i, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("export: unterminated tag near %q", raw[start:])
+}
+
+func fragmentName(fragment string) string {
+	start := strings.IndexByte(fragment, '<')
+	if start < 0 {
+		return ""
+	}
+	end, err := findTagEnd(fragment, start)
+	if err != nil {
+		return ""
+	}
+	return tagName(fragment[start+1 : end])
+}
+
+func tagName(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if strings.HasPrefix(tag, "/") {
+		tag = tag[1:]
+	}
+	for i := 0; i < len(tag); i++ {
+		switch tag[i] {
+		case ' ', '\t', '\n', '\r', '/':
+			return tag[:i]
+		}
+	}
+	return tag
+}
+
+func replaceTextRuns(fragment string, replacements []string) (string, error) {
+	indexes := textRunRE.FindAllStringSubmatchIndex(fragment, -1)
+	if len(indexes) < len(replacements) {
+		return "", fmt.Errorf("export: text run replacement overflow: have %d need %d", len(indexes), len(replacements))
+	}
+	var b strings.Builder
+	last := 0
+	for i, loc := range indexes {
+		contentStart, contentEnd := loc[2], loc[3]
+		b.WriteString(fragment[last:contentStart])
+		value := fragment[contentStart:contentEnd]
+		if i < len(replacements) {
+			value = xmlEscape(replacements[i])
+		}
+		b.WriteString(value)
+		last = contentEnd
+	}
+	b.WriteString(fragment[last:])
 	return b.String(), nil
 }
 
-// heading writes a paragraph with the Heading1 style and size. `sz` is
-// in half-points (OOXML convention).
-func heading(b *bytes.Buffer, text string, halfPt int, doubleAfter bool) {
-	spacing := ""
-	if doubleAfter {
-		spacing = `<w:spacing w:after="240"/>`
+func replaceFirstTextAndClearRest(fragment, text string) (string, error) {
+	count := len(textRunRE.FindAllStringSubmatchIndex(fragment, -1))
+	if count == 0 {
+		return "", fmt.Errorf("export: no text runs to replace")
 	}
-	fmt.Fprintf(b, `<w:p><w:pPr>%s</w:pPr><w:r><w:rPr><w:b/><w:sz w:val="%d"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p>`,
-		spacing, halfPt, xmlEscape(text))
-}
-
-func para(b *bytes.Buffer, text string) {
-	if text == "" {
-		b.WriteString(`<w:p/>`)
-		return
+	replacements := make([]string, count)
+	replacements[0] = text
+	for i := 1; i < count; i++ {
+		replacements[i] = ""
 	}
-	fmt.Fprintf(b, `<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`, xmlEscape(text))
+	return replaceTextRuns(fragment, replacements)
 }
 
-func kv(b *bytes.Buffer, k, v string) {
-	fmt.Fprintf(b, `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">%s: </w:t></w:r><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`,
-		xmlEscape(k), xmlEscape(v))
+func removeChildRange(children []string, start, end int) []string {
+	if start < 0 || end >= len(children) || start > end {
+		return children
+	}
+	out := make([]string, 0, len(children)-(end-start+1))
+	out = append(out, children[:start]...)
+	out = append(out, children[end+1:]...)
+	return out
 }
 
-func tableRow(b *bytes.Buffer, cells []string, bold bool) {
-	b.WriteString(`<w:tr>`)
-	for _, c := range cells {
-		weight := ``
-		if bold {
-			weight = `<w:rPr><w:b/></w:rPr>`
+func sectionNumber(index int) string {
+	labels := []string{"（一）", "（二）", "（三）"}
+	if index < 0 || index >= len(labels) {
+		return fmt.Sprintf("（%d）", index+1)
+	}
+	return labels[index]
+}
+
+func buildSummaryNarrative(v QuotationView) string {
+	clauses := make([]string, 0, 2)
+	categoryText := niceCategoryLabel(v.NiceCategoryCodes)
+	if v.MadridQuote != nil {
+		clauses = append(clauses,
+			fmt.Sprintf("在%s通过马德里途径提起针对%s的新申请", countryAreaSummary(v.MadridCountries), categoryText),
+		)
+	}
+	if v.SingleQuote != nil {
+		clauses = append(clauses,
+			fmt.Sprintf("在%s通过单一注册方式提起针对%s的新申请", countryAreaSummary(v.SingleCountries), categoryText),
+		)
+	}
+	if len(clauses) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"针对贵司的需求，我司建议%s，总的报价为%s元，请贵司查阅。",
+		strings.Join(clauses, "，"),
+		formatWholeAmount(v.SummaryQuote.TotalCNYCents),
+	)
+}
+
+func countryAreaSummary(countries []CountryView) string {
+	return fmtCountryListZH(countries) + "（共" + strconv.Itoa(len(countries)) + "个国家/地区）"
+}
+
+func niceCategoryLabel(codes []int) string {
+	if len(codes) == 0 {
+		return "第1类"
+	}
+	parts := make([]string, 0, len(codes))
+	for _, code := range codes {
+		parts = append(parts, fmt.Sprintf("第%d类", code))
+	}
+	return strings.Join(parts, "、")
+}
+
+func niceCategoryMiddleText(codes []int) string {
+	label := niceCategoryLabel(codes)
+	label = strings.TrimPrefix(label, "第")
+	label = strings.TrimSuffix(label, "类")
+	return label
+}
+
+func niceCategoryCodeText(codes []int) string {
+	if len(codes) == 0 {
+		return "1"
+	}
+	parts := make([]string, 0, len(codes))
+	for _, code := range codes {
+		parts = append(parts, strconv.Itoa(code))
+	}
+	return strings.Join(parts, "、")
+}
+
+func splitYearText(value string) (string, string) {
+	if value == "" {
+		return "10", "年"
+	}
+	if strings.HasSuffix(value, "年") {
+		return strings.TrimSuffix(value, "年"), "年"
+	}
+	return value, ""
+}
+
+func addVAT6(cents int64) int64 {
+	return cents * 106 / 100
+}
+
+func formatCHFCNYRate(chfCents, cnyCents int64) string {
+	if chfCents <= 0 || cnyCents <= 0 {
+		return "0"
+	}
+	rate := float64(cnyCents) / float64(chfCents)
+	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(rate, 'f', 2, 64), "0"), ".")
+}
+
+func formatWholeAmount(cents int64) string {
+	if cents <= 0 {
+		return "0"
+	}
+	return strconv.FormatInt(cents/100, 10)
+}
+
+func countryViewsFromMadridRows(rows []MadridQuoteRow) []CountryView {
+	derived := make([]CountryView, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.CountryArea)
+		if name == "" {
+			continue
 		}
-		fmt.Fprintf(b, `<w:tc><w:tcPr><w:tcW w:w="2500" w:type="pct"/></w:tcPr><w:p><w:r>%s<w:t xml:space="preserve">%s</w:t></w:r></w:p></w:tc>`,
-			weight, xmlEscape(c))
+		derived = append(derived, CountryView{NameZH: name})
 	}
-	b.WriteString(`</w:tr>`)
+	return dedupeCountryViews(derived)
 }
 
-// xmlEscape escapes < > & ' " inside text nodes / attribute values.
-// encoding/xml's EscapeText handles these for us when writing through
-// xml.Encoder, but we build the document with fmt.Fprintf for speed
-// and control, so we escape explicitly. We use html.EscapeString
-// which over-escapes `<`, `>`, `&` which is safe in XML.
+func countryViewsFromSingleRows(rows []SingleQuoteRow) []CountryView {
+	derived := make([]CountryView, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.CountryArea)
+		if name == "" {
+			continue
+		}
+		derived = append(derived, CountryView{NameZH: name})
+	}
+	return dedupeCountryViews(derived)
+}
+
+func normalizeCountryLists(v QuotationView) QuotationView {
+	if len(v.MadridCountries) == 0 && v.MadridQuote != nil {
+		v.MadridCountries = countryViewsFromMadridRows(v.MadridQuote.Rows)
+	}
+	if len(v.SingleCountries) == 0 && v.SingleQuote != nil {
+		v.SingleCountries = countryViewsFromSingleRows(v.SingleQuote.Rows)
+	}
+
+	merged := mergeCountryViews(
+		v.CountrySummary,
+		v.Countries,
+		v.MadridCountries,
+		v.SingleCountries,
+	)
+	if len(merged) == 0 {
+		merged = v.allCountries()
+	}
+	v.CountrySummary = merged
+	v.Countries = merged
+	return v
+}
+
+func mergeCountryViews(groups ...[]CountryView) []CountryView {
+	merged := make([]CountryView, 0)
+	for _, group := range groups {
+		merged = append(merged, group...)
+	}
+	return dedupeCountryViews(merged)
+}
+
+func dedupeCountryViews(countries []CountryView) []CountryView {
+	if len(countries) == 0 {
+		return nil
+	}
+	out := make([]CountryView, 0, len(countries))
+	seen := make(map[string]struct{}, len(countries))
+	for _, country := range countries {
+		key := countryViewKey(country)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, country)
+	}
+	return out
+}
+
+func countryViewKey(country CountryView) string {
+	key := firstNonEmpty(
+		strings.TrimSpace(country.NameZH),
+		strings.TrimSpace(country.NameEN),
+		strings.TrimSpace(country.Code),
+	)
+	if key != "" {
+		return key
+	}
+	if country.ID != uuid.Nil {
+		return country.ID.String()
+	}
+	return ""
+}
+
+func isXMLSpace(b byte) bool {
+	return b == ' ' || b == '\n' || b == '\r' || b == '\t'
+}
+
 func xmlEscape(s string) string {
-	// html.EscapeString handles &, <, >, and ". It leaves ' alone.
 	s = html.EscapeString(s)
-	// Convert single quote explicitly for attribute safety.
 	var buf bytes.Buffer
 	for _, r := range s {
 		if r == '\'' {
@@ -311,15 +1125,7 @@ func formatCountryBilingual(country CountryView) string {
 }
 
 func formatCountryZH(country CountryView) string {
-	name := firstNonEmpty(country.NameZH, country.NameEN)
-	switch {
-	case country.Code != "" && name != "":
-		return fmt.Sprintf("%s — %s", country.Code, name)
-	case name != "":
-		return name
-	default:
-		return country.Code
-	}
+	return firstNonEmpty(country.NameZH, country.NameEN, country.Code)
 }
 
 func formatCountryEN(country CountryView) string {
@@ -357,7 +1163,6 @@ func firstNonEmpty(values ...string) string {
 // humanMoney formats 1234567.89 as "1,234,567.89".
 func humanMoney(x float64) string {
 	s := fmt.Sprintf("%.2f", x)
-	// Locate decimal point.
 	intPart, fracPart := s, ""
 	for i, c := range s {
 		if c == '.' {
@@ -365,7 +1170,6 @@ func humanMoney(x float64) string {
 			break
 		}
 	}
-	// Insert commas into intPart.
 	n := len(intPart)
 	if n <= 3 {
 		return intPart + fracPart
@@ -395,5 +1199,24 @@ func short(s string) string {
 	return s
 }
 
-// Sentinel to make encoding/xml package usage explicit if we expand.
-var _ = xml.NewEncoder
+const (
+	docxCustomerParagraphIndex = 1
+	docxCategoryParagraphIndex = 11
+	docxCountryParagraphIndex  = 12
+
+	docxMadridTitleIndex     = 15
+	docxMadridCountryIndex   = 16
+	docxMadridCategoryIndex  = 17
+	docxMadridTableIndex     = 18
+	docxMadridSpacerEndIndex = 20
+
+	docxSingleTitleIndex    = 21
+	docxSingleCountryIndex  = 22
+	docxSingleCategoryIndex = 23
+	docxSingleTableIndex    = 24
+	docxSingleBlockSize     = 9
+
+	docxSummaryTitleIndex     = 28
+	docxSummaryParagraphIndex = 29
+	docxSummaryTableIndex     = 30
+)

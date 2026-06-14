@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,7 @@ import (
 	"github.com/pigletfly/trademark-admin/apps/api/internal/auth"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/catalog"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/customer"
+	"github.com/pigletfly/trademark-admin/apps/api/internal/pricing"
 	"github.com/pigletfly/trademark-admin/apps/api/internal/quotation"
 )
 
@@ -33,11 +36,19 @@ var (
 // when invoked with nil deps, which is by design so misconfiguration
 // fails loudly rather than silently serving 500s.
 type Handler struct {
-	quotSvc   *quotation.Service
-	custSvc   *customer.Service
-	catRepo   *catalog.Repository
-	exportSvc *Service
-	signer    *Signer
+	quotSvc     *quotation.Service
+	custSvc     *customer.Service
+	catRepo     *catalog.Repository
+	pricingRepo *pricing.Repository
+	exportSvc   *Service
+	signer      *Signer
+}
+
+type singleGroup struct {
+	CountryID          uuid.UUID
+	CountryArea        string
+	SourcePricingID    uuid.UUID
+	ApplicationUntaxed int64
 }
 
 // NewHandler constructs a Handler. Pass nil for svc/signer if you only
@@ -46,10 +57,18 @@ func NewHandler(
 	q *quotation.Service,
 	c *customer.Service,
 	cat *catalog.Repository,
+	pricingRepo *pricing.Repository,
 	svc *Service,
 	signer *Signer,
 ) *Handler {
-	return &Handler{quotSvc: q, custSvc: c, catRepo: cat, exportSvc: svc, signer: signer}
+	return &Handler{
+		quotSvc:     q,
+		custSvc:     c,
+		catRepo:     cat,
+		pricingRepo: pricingRepo,
+		exportSvc:   svc,
+		signer:      signer,
+	}
 }
 
 // ExportDOCX handles GET /quotations/:id/export.docx — the legacy path
@@ -236,23 +255,25 @@ func (h *Handler) buildView(
 		primaryCountry = countries[0]
 	}
 	v := QuotationView{
-		QuotationID:     q.ID.String(),
-		Status:          string(q.Status),
-		ServiceTier:     q.ServiceTier,
-		CustomerName:    cust.Name,
-		Countries:       countries,
-		MadridCountries: madridCountries,
-		SingleCountries: singleCountries,
-		CountryNameZH:   primaryCountry.NameZH,
-		CountryNameEN:   primaryCountry.NameEN,
-		CountryCode:     primaryCountry.Code,
-		TotalCNYCents:   derefInt64(q.TotalCNYCents),
-		Signature:       derefString(q.Signature),
-		SubmittedAt:     q.SubmittedAt,
-		ReviewedAt:      q.ReviewedAt,
-		ReviewComment:   derefString(q.ReviewComment),
-		Notes:           derefString(q.Notes),
-		GeneratedAt:     time.Now(),
+		QuotationID:       q.ID.String(),
+		Status:            string(q.Status),
+		ServiceTier:       q.ServiceTier,
+		CustomerName:      cust.Name,
+		Countries:         countries,
+		CountrySummary:    countries,
+		MadridCountries:   madridCountries,
+		SingleCountries:   singleCountries,
+		CountryNameZH:     primaryCountry.NameZH,
+		CountryNameEN:     primaryCountry.NameEN,
+		CountryCode:       primaryCountry.Code,
+		NiceCategoryCodes: resp.NiceCategoryCodes,
+		TotalCNYCents:     derefInt64(q.TotalCNYCents),
+		Signature:         derefString(q.Signature),
+		SubmittedAt:       q.SubmittedAt,
+		ReviewedAt:        q.ReviewedAt,
+		ReviewComment:     derefString(q.ReviewComment),
+		Notes:             derefString(q.Notes),
+		GeneratedAt:       time.Now(),
 	}
 	for _, l := range snap.Lines {
 		v.Lines = append(v.Lines, ExportLine{
@@ -264,6 +285,9 @@ func (h *Handler) buildView(
 			OfficialFeeCHFCents: l.OfficialFeeCHFCents,
 			AmountCNYCents:      l.AmountCNYCents,
 		})
+	}
+	if err := h.populateTemplateSections(ctx, &v, snap); err != nil {
+		return QuotationView{}, err
 	}
 	return v, nil
 }
@@ -281,6 +305,7 @@ func (h *Handler) resolveCountries(ctx context.Context, ids []uuid.UUID) ([]Coun
 			return nil, fmt.Errorf("export: lookup country %s: empty result", id)
 		}
 		out = append(out, CountryView{
+			ID:     country.ID,
 			Code:   country.Code,
 			NameZH: country.NameZh,
 			NameEN: country.NameEn,
@@ -354,4 +379,323 @@ func derefInt64(p *int64) int64 {
 		return 0
 	}
 	return *p
+}
+
+func (h *Handler) populateTemplateSections(
+	ctx context.Context,
+	v *QuotationView,
+	snap quotation.Snapshot,
+) error {
+	var err error
+	madridIDs, hasMadridLines := snapshotMethodCountryIDs(snap.Lines, pricing.RegistrationMethodMadrid)
+	if h.catRepo != nil && len(madridIDs) > 0 {
+		v.MadridCountries, err = h.resolveCountries(ctx, madridIDs)
+		if err != nil {
+			return err
+		}
+	}
+
+	singleIDs, hasSingleLines := snapshotMethodCountryIDs(snap.Lines, pricing.RegistrationMethodSingle)
+	if h.catRepo != nil && len(singleIDs) > 0 {
+		v.SingleCountries, err = h.resolveCountries(ctx, singleIDs)
+		if err != nil {
+			return err
+		}
+	}
+
+	v.MadridQuote = buildMadridQuoteSection(v.MadridCountries, snap.Lines)
+	singleQuote, err := h.buildSingleQuoteSection(ctx, v.SingleCountries, len(v.NiceCategoryCodes), snap.Lines)
+	if err != nil {
+		return err
+	}
+	v.SingleQuote = singleQuote
+
+	if hasMadridLines && v.MadridQuote != nil {
+		v.MadridCountries = mergeCountryViews(v.MadridCountries, countryViewsFromMadridRows(v.MadridQuote.Rows))
+	} else if len(v.MadridCountries) == 0 && v.MadridQuote != nil {
+		v.MadridCountries = countryViewsFromMadridRows(v.MadridQuote.Rows)
+	}
+	if hasSingleLines && v.SingleQuote != nil {
+		v.SingleCountries = mergeCountryViews(v.SingleCountries, countryViewsFromSingleRows(v.SingleQuote.Rows))
+	} else if len(v.SingleCountries) == 0 && v.SingleQuote != nil {
+		v.SingleCountries = countryViewsFromSingleRows(v.SingleQuote.Rows)
+	}
+
+	mergedCountries := mergeCountryViews(
+		v.CountrySummary,
+		v.Countries,
+		v.MadridCountries,
+		v.SingleCountries,
+	)
+	v.CountrySummary = mergedCountries
+	v.Countries = mergedCountries
+	v.SummaryQuote = buildSummaryQuoteSection(*v)
+	v.SummaryNarrative = buildSummaryNarrative(*v)
+	return nil
+}
+
+func snapshotMethodCountryIDs(lines []quotation.SnapshotLine, method string) ([]uuid.UUID, bool) {
+	ids := make([]uuid.UUID, 0)
+	seen := make(map[uuid.UUID]struct{})
+	hasMethodLines := false
+	for _, line := range lines {
+		if line.RegistrationMethod != method {
+			continue
+		}
+		hasMethodLines = true
+		if line.CountryID == nil || *line.CountryID == uuid.Nil {
+			continue
+		}
+		if _, ok := seen[*line.CountryID]; ok {
+			continue
+		}
+		seen[*line.CountryID] = struct{}{}
+		ids = append(ids, *line.CountryID)
+	}
+	return ids, hasMethodLines
+}
+
+func buildMadridQuoteSection(
+	countries []CountryView,
+	lines []quotation.SnapshotLine,
+) *MadridQuoteSection {
+	nameByID := make(map[uuid.UUID]string, len(countries))
+	for _, country := range countries {
+		nameByID[country.ID] = firstNonEmpty(country.NameZH, country.NameEN, country.Code)
+	}
+
+	rowByKey := make(map[string]*MadridQuoteRow)
+	discoveryOrder := make([]string, 0)
+	section := &MadridQuoteSection{BaseFeeNote: "（黑白商标）"}
+	hasMadrid := false
+
+	for _, line := range lines {
+		if line.RegistrationMethod != pricing.RegistrationMethodMadrid {
+			continue
+		}
+		hasMadrid = true
+		if line.CountryID == nil {
+			if line.OfficialFeeCHFCents != nil {
+				section.BaseOfficialFeeCHFCents += *line.OfficialFeeCHFCents
+				section.OfficialTotalCHFCents += *line.OfficialFeeCHFCents
+				section.OfficialTotalCNYCents += line.AmountCNYCents
+			} else {
+				section.BaseAgencyFeeCNYCents += line.AmountCNYCents
+				section.AgencyTotalCNYCents += line.AmountCNYCents
+			}
+			continue
+		}
+
+		key := line.CountryID.String()
+		row, ok := rowByKey[key]
+		if !ok {
+			row = &MadridQuoteRow{
+				CountryArea:  firstNonEmpty(nameByID[*line.CountryID], line.CountryArea),
+				ValidityText: "10年",
+			}
+			rowByKey[key] = row
+			discoveryOrder = append(discoveryOrder, key)
+		}
+		if line.OfficialFeeCHFCents != nil {
+			row.OfficialFeeCHFCents += *line.OfficialFeeCHFCents
+			section.OfficialTotalCHFCents += *line.OfficialFeeCHFCents
+			section.OfficialTotalCNYCents += line.AmountCNYCents
+			continue
+		}
+		row.AgencyFeeCNYCents += line.AmountCNYCents
+		section.AgencyTotalCNYCents += line.AmountCNYCents
+	}
+
+	if !hasMadrid {
+		return nil
+	}
+	section.Rows = orderMadridRows(countries, rowByKey, discoveryOrder)
+	for i := range section.Rows {
+		section.Rows[i].SequenceNo = i + 1
+	}
+	section.SubtotalCNYCents = section.OfficialTotalCNYCents + section.AgencyTotalCNYCents
+	section.TotalWithTaxCNYCents = addVAT6(section.SubtotalCNYCents)
+	return section
+}
+
+func orderMadridRows(
+	countries []CountryView,
+	rowByKey map[string]*MadridQuoteRow,
+	discoveryOrder []string,
+) []MadridQuoteRow {
+	rows := make([]MadridQuoteRow, 0, len(rowByKey))
+	seen := make(map[string]struct{}, len(rowByKey))
+	for _, country := range countries {
+		key := country.ID.String()
+		row, ok := rowByKey[key]
+		if !ok {
+			continue
+		}
+		row.CountryArea = firstNonEmpty(country.NameZH, row.CountryArea)
+		rows = append(rows, *row)
+		seen[key] = struct{}{}
+	}
+	for _, key := range discoveryOrder {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		rows = append(rows, *rowByKey[key])
+	}
+	return rows
+}
+
+func (h *Handler) buildSingleQuoteSection(
+	ctx context.Context,
+	countries []CountryView,
+	classCount int,
+	lines []quotation.SnapshotLine,
+) (*SingleQuoteSection, error) {
+	if classCount < 1 {
+		classCount = 1
+	}
+
+	groupByKey := make(map[string]*singleGroup)
+	discoveryOrder := make([]string, 0)
+	hasSingle := false
+	for _, line := range lines {
+		if line.RegistrationMethod != pricing.RegistrationMethodSingle {
+			continue
+		}
+		hasSingle = true
+		key := line.CountryArea
+		if line.CountryID != nil {
+			key = line.CountryID.String()
+		}
+		group, ok := groupByKey[key]
+		if !ok {
+			group = &singleGroup{CountryArea: line.CountryArea}
+			if line.CountryID != nil {
+				group.CountryID = *line.CountryID
+			}
+			groupByKey[key] = group
+			discoveryOrder = append(discoveryOrder, key)
+		}
+		if line.SourcePricingID != nil && group.SourcePricingID == uuid.Nil {
+			group.SourcePricingID = *line.SourcePricingID
+		}
+		group.ApplicationUntaxed += line.AmountCNYCents
+	}
+	if !hasSingle {
+		return nil, nil
+	}
+	if h.pricingRepo == nil {
+		return nil, fmt.Errorf("export: pricing repository is required for single-class docx export")
+	}
+
+	nameByID := make(map[uuid.UUID]string, len(countries))
+	for _, country := range countries {
+		nameByID[country.ID] = firstNonEmpty(country.NameZH, country.NameEN, country.Code)
+	}
+	orderedGroups := orderSingleGroups(countries, groupByKey, discoveryOrder)
+	section := &SingleQuoteSection{Rows: make([]SingleQuoteRow, 0, len(orderedGroups))}
+	for i, group := range orderedGroups {
+		row := SingleQuoteRow{
+			SequenceNo:           i + 1,
+			CountryArea:          firstNonEmpty(nameByID[group.CountryID], group.CountryArea),
+			SubmissionMethodText: "一标一类",
+		}
+		if group.SourcePricingID != uuid.Nil {
+			entry, err := h.pricingRepo.GetSingleClassByID(ctx, group.SourcePricingID)
+			if err != nil {
+				return nil, fmt.Errorf("export: lookup single pricing %s: %w", group.SourcePricingID, err)
+			}
+			row.ApplicationFeeCNYCents = entry.FirstClassFeeTax6CNYCents
+			if classCount > 1 {
+				row.ApplicationFeeCNYCents += int64(classCount-1) * entry.AdditionalClassFeeTax6CNYCents
+			}
+			if row.ApplicationFeeCNYCents == 0 {
+				row.ApplicationFeeCNYCents = group.ApplicationUntaxed
+			}
+			row.NotarizationFeeText = strings.TrimSpace(entry.NotarizationFee)
+			if row.NotarizationFeeText == "" {
+				row.NotarizationFeeText = "0"
+			}
+			notarizationCents, err := parseMoneyTextToCents(row.NotarizationFeeText)
+			if err != nil {
+				return nil, fmt.Errorf("export: parse notarization fee %q: %w", row.NotarizationFeeText, err)
+			}
+			row.NotarizationFeeCNYCents = notarizationCents
+			row.RegistrationMonthsText = entry.RegistrationMonths
+			if entry.ValidityYears != nil {
+				row.ValidityYearsText = strconv.Itoa(*entry.ValidityYears)
+			}
+			row.CountryArea = firstNonEmpty(nameByID[entry.CountryID], row.CountryArea, entry.CountryArea)
+		} else {
+			row.ApplicationFeeCNYCents = group.ApplicationUntaxed
+			row.NotarizationFeeText = "0"
+		}
+		section.TotalCNYCents += row.ApplicationFeeCNYCents + row.NotarizationFeeCNYCents
+		section.Rows = append(section.Rows, row)
+	}
+	return section, nil
+}
+
+func orderSingleGroups(
+	countries []CountryView,
+	groupByKey map[string]*singleGroup,
+	discoveryOrder []string,
+) []*singleGroup {
+	ordered := make([]*singleGroup, 0, len(groupByKey))
+	seen := make(map[string]struct{}, len(groupByKey))
+	for _, country := range countries {
+		key := country.ID.String()
+		group, ok := groupByKey[key]
+		if !ok {
+			continue
+		}
+		ordered = append(ordered, group)
+		seen[key] = struct{}{}
+	}
+	for _, key := range discoveryOrder {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		ordered = append(ordered, groupByKey[key])
+	}
+	return ordered
+}
+
+func buildSummaryQuoteSection(v QuotationView) SummaryQuoteSection {
+	section := SummaryQuoteSection{}
+	if v.MadridQuote != nil {
+		section.Rows = append(section.Rows, SummaryQuoteRow{
+			MethodLabel:        "马德里",
+			CategoryCodeText:   niceCategoryCodeText(v.NiceCategoryCodes),
+			CountryAreaSummary: countryAreaSummary(v.MadridCountries),
+			FeeCNYCents:        v.MadridQuote.TotalWithTaxCNYCents,
+		})
+		section.TotalCNYCents += v.MadridQuote.TotalWithTaxCNYCents
+	}
+	if v.SingleQuote != nil {
+		section.Rows = append(section.Rows, SummaryQuoteRow{
+			MethodLabel:        "单一国",
+			CategoryCodeText:   niceCategoryCodeText(v.NiceCategoryCodes),
+			CountryAreaSummary: countryAreaSummary(v.SingleCountries),
+			FeeCNYCents:        v.SingleQuote.TotalCNYCents,
+		})
+		section.TotalCNYCents += v.SingleQuote.TotalCNYCents
+	}
+	return section
+}
+
+func parseMoneyTextToCents(raw string) (int64, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, nil
+	}
+	replacer := strings.NewReplacer(",", "", "，", "", "元", "", "RMB", "", "人民币", "")
+	value = strings.TrimSpace(replacer.Replace(value))
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(math.Round(parsed * 100)), nil
 }

@@ -34,7 +34,7 @@ func RenderHTML(v QuotationView, lang Language) ([]byte, error) {
 		return nil, fmt.Errorf("export: parse template: %w", err)
 	}
 	// Fill QuotationIDShort if caller left it blank.
-	view := v
+	view := normalizeCountryLists(v)
 	if view.QuotationIDShort == "" && len(view.QuotationID) > 8 {
 		view.QuotationIDShort = view.QuotationID[:8]
 	}

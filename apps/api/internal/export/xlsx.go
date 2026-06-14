@@ -10,6 +10,8 @@ import (
 // RenderXLSX writes a compact Excel workbook containing the same quote
 // view used by PDF/DOCX exports.
 func RenderXLSX(v QuotationView) ([]byte, error) {
+	v = normalizeCountryLists(v)
+
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 

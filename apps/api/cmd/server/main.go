@@ -190,10 +190,10 @@ func main() {
 	gotenbergClient := export.NewGotenberg(cfg.GotenbergURL)
 	exportSvc := export.NewService(exportRepo, exportStorage, gotenbergClient, cfg.ExportTTL)
 	exportSigner := export.NewSigner([]byte(cfg.ExportSigningSecret))
-	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo, exportSvc, exportSigner)
-	export.RegisterRoutes(authed, exportHandler)            // legacy GET export.docx
-	export.RegisterAuthedRoutes(authed, exportHandler)      // POST /quotations/:id/export
-	export.RegisterPublicRoutes(public, exportHandler)      // GET /exports/:id/download (token-auth)
+	exportHandler := export.NewHandler(quotSvc, custSvc, catalogRepo, pricingRepo, exportSvc, exportSigner)
+	export.RegisterRoutes(authed, exportHandler)       // legacy GET export.docx
+	export.RegisterAuthedRoutes(authed, exportHandler) // POST /quotations/:id/export
+	export.RegisterPublicRoutes(public, exportHandler) // GET /exports/:id/download (token-auth)
 
 	// Dashboard — any authed user. Scope (self vs firm) is decided
 	// inside the service based on role.

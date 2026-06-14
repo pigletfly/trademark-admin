@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -75,6 +76,7 @@ func wireDomainServices(t *testing.T, db *gorm.DB) (
 	*customer.Service,
 	*quotation.Service,
 	*catalog.Repository,
+	*pricing.Repository,
 ) {
 	t.Helper()
 	quotRepo := quotation.NewRepository(db)
@@ -83,7 +85,7 @@ func wireDomainServices(t *testing.T, db *gorm.DB) (
 	quotSvc := quotation.NewService(quotRepo, pricingRepoAdapter{pRepo}, custRepo)
 	custSvc := customer.NewService(custRepo)
 	catRepo := catalog.NewRepository(db)
-	return custSvc, quotSvc, catRepo
+	return custSvc, quotSvc, catRepo, pRepo
 }
 
 func TestExportDOCX_RejectsDraftWith422(t *testing.T) {
@@ -317,8 +319,8 @@ func buildRouter(t *testing.T, db *gorm.DB, userID uuid.UUID, role string) *gin.
 		c.Set("auth.currentUser", auth.CurrentUserSummary{ID: userID, Role: role})
 		c.Next()
 	})
-	custSvc, quotSvc, catRepo := wireDomainServices(t, db)
-	h := export.NewHandler(quotSvc, custSvc, catRepo, nil, nil)
+	custSvc, quotSvc, catRepo, pricingRepo := wireDomainServices(t, db)
+	h := export.NewHandler(quotSvc, custSvc, catRepo, pricingRepo, nil, nil)
 	grp := r.Group("/api/v1")
 	export.RegisterRoutes(grp, h)
 	return r
@@ -348,8 +350,8 @@ func buildNewRouter(
 	svc := export.NewService(repo, storage, pdfRenderer, time.Hour)
 	signer := export.NewSigner(testSigningSecret)
 
-	custSvc, quotSvc, catRepo := wireDomainServices(t, db)
-	h := export.NewHandler(quotSvc, custSvc, catRepo, svc, signer)
+	custSvc, quotSvc, catRepo, pricingRepo := wireDomainServices(t, db)
+	h := export.NewHandler(quotSvc, custSvc, catRepo, pricingRepo, svc, signer)
 
 	r := gin.New()
 	// Public group: NO auth middleware.
@@ -408,6 +410,267 @@ func TestHandler_Export_PDF_ReturnsSignedURL(t *testing.T) {
 	}
 	if out.FileSize <= 0 {
 		t.Errorf("unexpected file size %d", out.FileSize)
+	}
+}
+
+func TestHandler_Export_DOCX_DownloadRendersTemplateContent(t *testing.T) {
+	db := bootPg(t)
+	gin.SetMode(gin.TestMode)
+
+	var roleIDStr string
+	_ = db.Raw(`SELECT id FROM roles WHERE code = 'admin'`).Scan(&roleIDStr).Error
+	roleID, _ := uuid.Parse(roleIDStr)
+	userID := uuid.New()
+	_ = db.Exec(`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		userID, "Admin", "admin@ex.com", "x", roleID).Error
+	custID := uuid.New()
+	_ = db.Exec(`INSERT INTO customers (id, name, created_by) VALUES (?, ?, ?)`,
+		custID, "Acme 有限公司", userID).Error
+	usID := uuid.New()
+	arID := uuid.New()
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		usID, "US", "美国", "United States").Error
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		arID, "AR", "阿根廷", "Argentina").Error
+
+	snap := map[string]any{
+		"lines": []map[string]any{
+			{
+				"fee_item":               "Madrid designated country official fee",
+				"amount_cny_cents":       105600,
+				"registration_method":    "madrid",
+				"country_id":             usID.String(),
+				"country_area":           "United States",
+				"official_fee_chf_cents": 26600,
+			},
+			{
+				"fee_item":            "Single filing first class fee",
+				"amount_cny_cents":    280000,
+				"registration_method": "single",
+				"country_id":          arID.String(),
+				"country_area":        "Argentina",
+			},
+		},
+		"total_cny_cents": 385600,
+		"signature":       "sig-methods",
+	}
+	snapJSON, _ := json.Marshal(snap)
+	countryIDsJSON, _ := json.Marshal([]string{usID.String(), arID.String()})
+	madridCountryIDsJSON, _ := json.Marshal([]string{usID.String()})
+	singleCountryIDsJSON, _ := json.Marshal([]string{arID.String()})
+	registrationMethodsJSON, _ := json.Marshal([]string{"madrid", "single"})
+	total := int64(385600)
+	submitted := time.Now().Add(-2 * time.Hour)
+	reviewed := time.Now().Add(-1 * time.Hour)
+
+	qID := uuid.New()
+	_ = db.Exec(`INSERT INTO quotations
+		(id, customer_id, country_id, country_ids, madrid_country_ids, single_country_ids, registration_methods, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
+		VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qID,
+		custID,
+		usID,
+		string(countryIDsJSON),
+		string(madridCountryIDsJSON),
+		string(singleCountryIDsJSON),
+		string(registrationMethodsJSON),
+		string(snapJSON),
+		total,
+		"sig-methods",
+		"Q202604260003",
+		submitted,
+		reviewed,
+		userID,
+		userID,
+	).Error
+
+	r, _, _, _ := buildNewRouter(t, db, &fakePDFRenderer{}, userID, "admin")
+
+	req := httptest.NewRequest("POST",
+		"/api/v1/quotations/"+qID.String()+"/export",
+		strings.NewReader(`{"format":"docx","language":"bilingual"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var out export.ExportFileDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Format != export.FormatDOCX {
+		t.Fatalf("format: got %q want docx", out.Format)
+	}
+	if out.DownloadURL == "" {
+		t.Fatal("missing download_url")
+	}
+
+	downloadReq := httptest.NewRequest("GET", out.DownloadURL, nil)
+	downloadResp := httptest.NewRecorder()
+	r.ServeHTTP(downloadResp, downloadReq)
+
+	if downloadResp.Code != http.StatusOK {
+		t.Fatalf("download code=%d body=%s", downloadResp.Code, downloadResp.Body.String())
+	}
+	if got := downloadResp.Header().Get("Content-Type"); got != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		t.Fatalf("content-type: got %q", got)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(downloadResp.Body.Bytes()), int64(downloadResp.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip: %v", err)
+	}
+	var doc string
+	for _, f := range zr.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, _ := f.Open()
+		raw, _ := io.ReadAll(rc)
+		rc.Close()
+		doc = string(raw)
+		break
+	}
+	if doc == "" {
+		t.Fatal("word/document.xml missing")
+	}
+	plain := extractWordText(t, doc)
+	for _, want := range []string{
+		"Acme 有限公司",
+		"拟注册国家/地区：美国、阿根廷（共2个国家/地区）",
+		"（一）通过马德里方式申请",
+		"（二）通过单一注册方式申请",
+		"（三）总的报价方案",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q in doc:\n%s", want, plain)
+		}
+	}
+}
+
+func TestHandler_Export_DOCX_UsesCatalogCountryNamesWhenMethodIDsMissing(t *testing.T) {
+	db := bootPg(t)
+	gin.SetMode(gin.TestMode)
+
+	var roleIDStr string
+	_ = db.Raw(`SELECT id FROM roles WHERE code = 'admin'`).Scan(&roleIDStr).Error
+	roleID, _ := uuid.Parse(roleIDStr)
+	userID := uuid.New()
+	_ = db.Exec(`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		userID, "Admin", "admin@ex.com", "x", roleID).Error
+	custID := uuid.New()
+	_ = db.Exec(`INSERT INTO customers (id, name, created_by) VALUES (?, ?, ?)`,
+		custID, "Acme 有限公司", userID).Error
+	usID := uuid.New()
+	arID := uuid.New()
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		usID, "US", "美国", "United States").Error
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		arID, "AR", "阿根廷", "Argentina").Error
+
+	snap := map[string]any{
+		"lines": []map[string]any{
+			{
+				"fee_item":               "Madrid designated country official fee",
+				"amount_cny_cents":       105600,
+				"registration_method":    "madrid",
+				"country_id":             usID.String(),
+				"country_area":           "United States",
+				"official_fee_chf_cents": 26600,
+			},
+			{
+				"fee_item":            "Single filing first class fee",
+				"amount_cny_cents":    280000,
+				"registration_method": "single",
+				"country_id":          arID.String(),
+				"country_area":        "Argentina",
+			},
+		},
+		"total_cny_cents": 385600,
+		"signature":       "sig-methods-missing-ids",
+	}
+	snapJSON, _ := json.Marshal(snap)
+	countryIDsJSON, _ := json.Marshal([]string{usID.String()})
+	niceCategoryCodesJSON, _ := json.Marshal([]int{19, 35})
+	total := int64(385600)
+	submitted := time.Now().Add(-2 * time.Hour)
+	reviewed := time.Now().Add(-1 * time.Hour)
+
+	qID := uuid.New()
+	_ = db.Exec(`INSERT INTO quotations
+		(id, customer_id, country_id, country_ids, nice_category_codes, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
+		VALUES (?, ?, ?, ?::jsonb, ?::jsonb, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qID,
+		custID,
+		usID,
+		string(countryIDsJSON),
+		string(niceCategoryCodesJSON),
+		string(snapJSON),
+		total,
+		"sig-methods-missing-ids",
+		"Q202604260004",
+		submitted,
+		reviewed,
+		userID,
+		userID,
+	).Error
+
+	r, _, _, _ := buildNewRouter(t, db, &fakePDFRenderer{}, userID, "admin")
+
+	req := httptest.NewRequest("POST",
+		"/api/v1/quotations/"+qID.String()+"/export",
+		strings.NewReader(`{"format":"docx","language":"bilingual"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var out export.ExportFileDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	downloadReq := httptest.NewRequest("GET", out.DownloadURL, nil)
+	downloadResp := httptest.NewRecorder()
+	r.ServeHTTP(downloadResp, downloadReq)
+
+	if downloadResp.Code != http.StatusOK {
+		t.Fatalf("download code=%d body=%s", downloadResp.Code, downloadResp.Body.String())
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(downloadResp.Body.Bytes()), int64(downloadResp.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip: %v", err)
+	}
+	var doc string
+	for _, f := range zr.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, _ := f.Open()
+		raw, _ := io.ReadAll(rc)
+		rc.Close()
+		doc = string(raw)
+		break
+	}
+	if doc == "" {
+		t.Fatal("word/document.xml missing")
+	}
+	plain := extractWordText(t, doc)
+	for _, want := range []string{
+		"拟注册国家/地区：美国、阿根廷（共2个国家/地区）",
+		"1.国家（共1个国家/地区）：美国",
+		"1.国家（共1个国家/地区）：阿根廷",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q in doc:\n%s", want, plain)
+		}
 	}
 }
 
@@ -494,3 +757,37 @@ func TestHandler_Export_InvalidOpts(t *testing.T) {
 
 // unused import silencer
 var _ = audit.JSONB(nil)
+
+func extractWordText(t *testing.T, raw string) string {
+	t.Helper()
+
+	decoder := xml.NewDecoder(strings.NewReader(raw))
+	var (
+		builder strings.Builder
+		inText  bool
+	)
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode word xml: %v", err)
+		}
+		switch typed := token.(type) {
+		case xml.StartElement:
+			if typed.Name.Local == "t" {
+				inText = true
+			}
+		case xml.EndElement:
+			if typed.Name.Local == "t" {
+				inText = false
+			}
+		case xml.CharData:
+			if inText {
+				builder.Write([]byte(typed))
+			}
+		}
+	}
+	return builder.String()
+}

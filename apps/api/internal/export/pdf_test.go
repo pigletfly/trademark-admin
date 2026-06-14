@@ -169,3 +169,23 @@ func TestRenderHTML_ShortIDAutoFilled(t *testing.T) {
 		t.Fatalf("missing derived short id %q in output", short)
 	}
 }
+
+func TestRenderHTML_Bilingual_DerivesCountriesFromMethodLists(t *testing.T) {
+	v := baseView()
+	v.Countries = nil
+
+	html, err := export.RenderHTML(v, export.LanguageBilingual)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	s := string(html)
+	for _, want := range []string{
+		"US 美国 / United States、AR 阿根廷 / Argentina",
+		"马德里注册 Madrid Registration",
+		"单一注册 Single Filing",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in output:\n%s", want, s)
+		}
+	}
+}
