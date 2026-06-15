@@ -171,7 +171,7 @@ export function FilterableMultiSelect<
               disabled={filteredOptions.length === 0}
             >
               <Check data-icon='inline-start' />
-              Select All
+              全选
             </Button>
             <div className='flex items-center gap-1'>
               <Button
@@ -181,7 +181,7 @@ export function FilterableMultiSelect<
                 onClick={() => onValueChange([])}
                 disabled={value.length === 0}
               >
-                Clear
+                清空
               </Button>
               <Button
                 type='button'
@@ -189,7 +189,7 @@ export function FilterableMultiSelect<
                 size='sm'
                 onClick={() => handleOpenChange(false)}
               >
-                Close
+                关闭
               </Button>
             </div>
           </div>

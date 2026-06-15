@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { QuotationStatusBadge } from '@/features/quotation/components/quotation-status-badge'
+import { SERVICE_TIER_LABEL_ZH } from '@/features/pricing/types'
 import type { RecentQuotation } from '../types'
 
 function formatCNY(cents: number | null | undefined): string {
@@ -27,12 +28,14 @@ export function RecentQuotations({ items }: { items: RecentQuotation[] }) {
               {q.id.slice(0, 8)}
             </Link>
             <QuotationStatusBadge status={q.status} />
-            <span className='text-xs text-muted-foreground'>{q.service_tier}</span>
+            <span className='text-xs text-muted-foreground'>
+              {SERVICE_TIER_LABEL_ZH[q.service_tier] ?? q.service_tier}
+            </span>
           </div>
           <div className='flex items-center gap-3'>
             <span className='font-medium'>{formatCNY(q.total_cny_cents)}</span>
             <span className='text-xs text-muted-foreground'>
-              {new Date(q.updated_at).toLocaleDateString()}
+              {new Date(q.updated_at).toLocaleDateString('zh-CN')}
             </span>
           </div>
         </li>

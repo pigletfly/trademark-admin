@@ -115,6 +115,7 @@ type SummaryQuoteRow struct {
 }
 
 var textRunRE = regexp.MustCompile(`(?s)<w:t\b[^>]*>(.*?)</w:t>`)
+var chineseDateParagraphRE = regexp.MustCompile(`^\d{4}年\d{1,2}月\d{1,2}日$`)
 
 func (v QuotationView) allCountries() []CountryView {
 	if len(v.CountrySummary) > 0 {
@@ -224,27 +225,28 @@ func renderTemplateDocument(v QuotationView) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(bodyChildren) <= docxSummaryTableIndex {
-		return "", fmt.Errorf("export: unexpected template body size %d", len(bodyChildren))
+	layout, err := detectDOCXLayout(bodyChildren)
+	if err != nil {
+		return "", err
 	}
 
 	var errReplace error
-	bodyChildren[docxCustomerParagraphIndex], errReplace = replaceTextRuns(
-		bodyChildren[docxCustomerParagraphIndex],
+	bodyChildren[layout.customerParagraphIndex], errReplace = replaceTextRunsFlexible(
+		bodyChildren[layout.customerParagraphIndex],
 		[]string{"致", ":", " ", v.CustomerName},
 	)
 	if errReplace != nil {
 		return "", errReplace
 	}
-	bodyChildren[docxCategoryParagraphIndex], errReplace = replaceTextRuns(
-		bodyChildren[docxCategoryParagraphIndex],
+	bodyChildren[layout.categoryParagraphIndex], errReplace = replaceTextRunsFlexible(
+		bodyChildren[layout.categoryParagraphIndex],
 		[]string{"拟注册类别：第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
 	)
 	if errReplace != nil {
 		return "", errReplace
 	}
-	bodyChildren[docxCountryParagraphIndex], errReplace = replaceTextRuns(
-		bodyChildren[docxCountryParagraphIndex],
+	bodyChildren[layout.countryParagraphIndex], errReplace = replaceTextRunsFlexible(
+		bodyChildren[layout.countryParagraphIndex],
 		[]string{
 			"拟注册国家",
 			"/",
@@ -254,6 +256,13 @@ func renderTemplateDocument(v QuotationView) (string, error) {
 			"/",
 			"地区）",
 		},
+	)
+	if errReplace != nil {
+		return "", errReplace
+	}
+	bodyChildren[layout.generatedDateIndex], errReplace = replaceTextRunsFlexible(
+		bodyChildren[layout.generatedDateIndex],
+		[]string{formatChineseDate(v.GeneratedAt)},
 	)
 	if errReplace != nil {
 		return "", errReplace
@@ -274,15 +283,15 @@ func renderTemplateDocument(v QuotationView) (string, error) {
 	summaryTitle = sectionNumber(nextNumber)
 
 	if v.MadridQuote != nil {
-		bodyChildren[docxMadridTitleIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxMadridTitleIndex],
+		bodyChildren[layout.madridTitleIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.madridTitleIndex],
 			[]string{madridTitle + "通过马德里方式申请"},
 		)
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxMadridCountryIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxMadridCountryIndex],
+		bodyChildren[layout.madridCountryIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.madridCountryIndex],
 			[]string{
 				"1.",
 				"国家",
@@ -298,29 +307,29 @@ func renderTemplateDocument(v QuotationView) (string, error) {
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxMadridCategoryIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxMadridCategoryIndex],
+		bodyChildren[layout.madridCategoryIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.madridCategoryIndex],
 			[]string{"2.", "类别：", "第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
 		)
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxMadridTableIndex], errReplace = renderMadridTable(bodyChildren[docxMadridTableIndex], v.MadridQuote)
+		bodyChildren[layout.madridTableIndex], errReplace = renderMadridTable(bodyChildren[layout.madridTableIndex], v.MadridQuote)
 		if errReplace != nil {
 			return "", errReplace
 		}
 	}
 
 	if v.SingleQuote != nil {
-		bodyChildren[docxSingleTitleIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxSingleTitleIndex],
+		bodyChildren[layout.singleTitleIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.singleTitleIndex],
 			[]string{singleTitle + "通过单一注册方式申请"},
 		)
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxSingleCountryIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxSingleCountryIndex],
+		bodyChildren[layout.singleCountryIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.singleCountryIndex],
 			[]string{
 				"1.",
 				"国家",
@@ -336,51 +345,149 @@ func renderTemplateDocument(v QuotationView) (string, error) {
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxSingleCategoryIndex], errReplace = replaceTextRuns(
-			bodyChildren[docxSingleCategoryIndex],
+		bodyChildren[layout.singleCategoryIndex], errReplace = replaceTextRunsFlexible(
+			bodyChildren[layout.singleCategoryIndex],
 			[]string{"2.", "类别：", "第", niceCategoryMiddleText(v.NiceCategoryCodes), "类"},
 		)
 		if errReplace != nil {
 			return "", errReplace
 		}
-		bodyChildren[docxSingleTableIndex], errReplace = renderSingleTable(bodyChildren[docxSingleTableIndex], v.SingleQuote)
+		bodyChildren[layout.singleTableIndex], errReplace = renderSingleTable(bodyChildren[layout.singleTableIndex], v.SingleQuote)
 		if errReplace != nil {
 			return "", errReplace
 		}
 	}
 
-	bodyChildren[docxSummaryTitleIndex], errReplace = replaceTextRuns(
-		bodyChildren[docxSummaryTitleIndex],
+	bodyChildren[layout.summaryTitleIndex], errReplace = replaceTextRunsFlexible(
+		bodyChildren[layout.summaryTitleIndex],
 		[]string{summaryTitle + "总的报价方案"},
 	)
 	if errReplace != nil {
 		return "", errReplace
 	}
-	bodyChildren[docxSummaryParagraphIndex], errReplace = replaceFirstTextAndClearRest(
-		bodyChildren[docxSummaryParagraphIndex],
+	bodyChildren[layout.summaryParagraphIndex], errReplace = replaceFirstTextAndClearRest(
+		bodyChildren[layout.summaryParagraphIndex],
 		v.SummaryNarrative,
 	)
 	if errReplace != nil {
 		return "", errReplace
 	}
-	bodyChildren[docxSummaryTableIndex], errReplace = renderSummaryTable(bodyChildren[docxSummaryTableIndex], v.SummaryQuote)
+	bodyChildren[layout.summaryTableIndex], errReplace = renderSummaryTable(bodyChildren[layout.summaryTableIndex], v.SummaryQuote)
 	if errReplace != nil {
 		return "", errReplace
 	}
 
 	if v.MadridQuote == nil {
-		bodyChildren = removeChildRange(bodyChildren, docxMadridTitleIndex, docxMadridSpacerEndIndex)
+		nextSectionStart := nextIndexAfter(
+			layout.madridTitleIndex,
+			layout.singleTitleIndex,
+			layout.summaryTitleIndex,
+		)
+		bodyChildren = removeChildRange(
+			bodyChildren,
+			layout.madridTitleIndex,
+			nextSectionStart-1,
+		)
 	}
 	if v.SingleQuote == nil {
-		start := docxSingleTitleIndex
-		if v.MadridQuote == nil {
-			start = docxSingleTitleIndex - (docxMadridSpacerEndIndex - docxMadridTitleIndex + 1)
+		singleTitleIndex := layout.singleTitleIndex
+		summaryTitleIndex := layout.summaryTitleIndex
+		if v.MadridQuote == nil && layout.madridTitleIndex < layout.singleTitleIndex {
+			removedCount := nextIndexAfter(
+				layout.madridTitleIndex,
+				layout.singleTitleIndex,
+				layout.summaryTitleIndex,
+			) - layout.madridTitleIndex
+			singleTitleIndex -= removedCount
+			summaryTitleIndex -= removedCount
 		}
-		bodyChildren = removeChildRange(bodyChildren, start, start+docxSingleBlockSize-1)
+		bodyChildren = removeChildRange(
+			bodyChildren,
+			singleTitleIndex,
+			summaryTitleIndex-1,
+		)
 	}
 
 	documentChildren[bodyIndex] = openBody + strings.Join(bodyChildren, "") + closeBody
 	return openDocument + strings.Join(documentChildren, "") + closeDocument, nil
+}
+
+type docxLayout struct {
+	customerParagraphIndex int
+	categoryParagraphIndex int
+	countryParagraphIndex  int
+	generatedDateIndex     int
+
+	madridTitleIndex    int
+	madridCountryIndex  int
+	madridCategoryIndex int
+	madridTableIndex    int
+
+	singleTitleIndex    int
+	singleCountryIndex  int
+	singleCategoryIndex int
+	singleTableIndex    int
+
+	summaryTitleIndex     int
+	summaryParagraphIndex int
+	summaryTableIndex     int
+}
+
+func detectDOCXLayout(bodyChildren []string) (docxLayout, error) {
+	layout := docxLayout{
+		customerParagraphIndex: findParagraphIndexContaining(bodyChildren, 0, -1, "致"),
+		categoryParagraphIndex: findParagraphIndexContaining(bodyChildren, 0, -1, "拟注册类别"),
+		countryParagraphIndex:  findParagraphIndexContaining(bodyChildren, 0, -1, "拟注册国家"),
+		generatedDateIndex:     findParagraphIndexMatching(bodyChildren, 0, -1, chineseDateParagraphRE.MatchString),
+		madridTitleIndex:       findParagraphIndexContaining(bodyChildren, 0, -1, "通过马德里方式申请"),
+		singleTitleIndex:       findParagraphIndexContaining(bodyChildren, 0, -1, "通过单一注册方式申请"),
+		summaryTitleIndex:      findParagraphIndexContaining(bodyChildren, 0, -1, "总的报价方案"),
+	}
+	if layout.customerParagraphIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor customer paragraph missing")
+	}
+	if layout.categoryParagraphIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor category paragraph missing")
+	}
+	if layout.countryParagraphIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor country paragraph missing")
+	}
+	if layout.generatedDateIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor generated date paragraph missing")
+	}
+	if layout.madridTitleIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor madrid title missing")
+	}
+	if layout.singleTitleIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor single title missing")
+	}
+	if layout.summaryTitleIndex < 0 {
+		return layout, fmt.Errorf("export: template anchor summary title missing")
+	}
+
+	madridStop := nextIndexAfter(layout.madridTitleIndex, layout.singleTitleIndex, layout.summaryTitleIndex)
+	layout.madridCountryIndex = findParagraphIndexContaining(bodyChildren, layout.madridTitleIndex+1, madridStop, "国家")
+	layout.madridCategoryIndex = findParagraphIndexContaining(bodyChildren, layout.madridCountryIndex+1, madridStop, "类别")
+	layout.madridTableIndex = findFirstChildIndex(bodyChildren, layout.madridCategoryIndex+1, madridStop, "w:tbl", nil)
+
+	singleStop := nextIndexAfter(layout.singleTitleIndex, layout.summaryTitleIndex)
+	layout.singleCountryIndex = findParagraphIndexContaining(bodyChildren, layout.singleTitleIndex+1, singleStop, "国家")
+	layout.singleCategoryIndex = findParagraphIndexContaining(bodyChildren, layout.singleCountryIndex+1, singleStop, "类别")
+	layout.singleTableIndex = findFirstChildIndex(bodyChildren, layout.singleCategoryIndex+1, singleStop, "w:tbl", nil)
+
+	layout.summaryParagraphIndex = findFirstNonEmptyParagraphIndex(bodyChildren, layout.summaryTitleIndex+1, -1)
+	layout.summaryTableIndex = findFirstChildIndex(bodyChildren, layout.summaryParagraphIndex+1, -1, "w:tbl", nil)
+
+	if layout.madridCountryIndex < 0 || layout.madridCategoryIndex < 0 || layout.madridTableIndex < 0 {
+		return layout, fmt.Errorf("export: template madrid block incomplete")
+	}
+	if layout.singleCountryIndex < 0 || layout.singleCategoryIndex < 0 || layout.singleTableIndex < 0 {
+		return layout, fmt.Errorf("export: template single block incomplete")
+	}
+	if layout.summaryParagraphIndex < 0 || layout.summaryTableIndex < 0 {
+		return layout, fmt.Errorf("export: template summary block incomplete")
+	}
+	return layout, nil
 }
 
 func templateDocumentXML() (string, error) {
@@ -815,6 +922,18 @@ func tagName(tag string) string {
 	return tag
 }
 
+func replaceTextRunsFlexible(fragment string, replacements []string) (string, error) {
+	indexes := textRunRE.FindAllStringSubmatchIndex(fragment, -1)
+	switch {
+	case len(indexes) == 0:
+		return "", fmt.Errorf("export: no text runs to replace")
+	case len(indexes) < len(replacements):
+		return replaceFirstTextAndClearRest(fragment, strings.Join(replacements, ""))
+	default:
+		return replaceTextRuns(fragment, replacements)
+	}
+}
+
 func replaceTextRuns(fragment string, replacements []string) (string, error) {
 	indexes := textRunRE.FindAllStringSubmatchIndex(fragment, -1)
 	if len(indexes) < len(replacements) {
@@ -859,12 +978,97 @@ func removeChildRange(children []string, start, end int) []string {
 	return out
 }
 
+func fragmentText(fragment string) string {
+	matches := textRunRE.FindAllStringSubmatch(fragment, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, match := range matches {
+		b.WriteString(html.UnescapeString(match[1]))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func findParagraphIndexContaining(children []string, start, stop int, substrings ...string) int {
+	return findFirstChildIndex(children, start, stop, "w:p", func(fragment string) bool {
+		text := fragmentText(fragment)
+		if text == "" {
+			return false
+		}
+		for _, substring := range substrings {
+			if !strings.Contains(text, substring) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+func findParagraphIndexMatching(children []string, start, stop int, matcher func(string) bool) int {
+	return findFirstChildIndex(children, start, stop, "w:p", func(fragment string) bool {
+		text := fragmentText(fragment)
+		if text == "" {
+			return false
+		}
+		return matcher(text)
+	})
+}
+
+func findFirstNonEmptyParagraphIndex(children []string, start, stop int) int {
+	return findFirstChildIndex(children, start, stop, "w:p", func(fragment string) bool {
+		return fragmentText(fragment) != ""
+	})
+}
+
+func findFirstChildIndex(
+	children []string,
+	start int,
+	stop int,
+	wantName string,
+	matcher func(fragment string) bool,
+) int {
+	if start < 0 {
+		start = 0
+	}
+	if stop < 0 || stop > len(children) {
+		stop = len(children)
+	}
+	for i := start; i < stop; i++ {
+		if wantName != "" && fragmentName(children[i]) != wantName {
+			continue
+		}
+		if matcher != nil && !matcher(children[i]) {
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
+func nextIndexAfter(after int, candidates ...int) int {
+	next := -1
+	for _, candidate := range candidates {
+		if candidate <= after {
+			continue
+		}
+		if next < 0 || candidate < next {
+			next = candidate
+		}
+	}
+	return next
+}
+
 func sectionNumber(index int) string {
 	labels := []string{"（一）", "（二）", "（三）"}
 	if index < 0 || index >= len(labels) {
 		return fmt.Sprintf("（%d）", index+1)
 	}
 	return labels[index]
+}
+
+func formatChineseDate(t time.Time) string {
+	return fmt.Sprintf("%d年%d月%d日", t.Year(), int(t.Month()), t.Day())
 }
 
 func buildSummaryNarrative(v QuotationView) string {
@@ -1198,25 +1402,3 @@ func short(s string) string {
 	}
 	return s
 }
-
-const (
-	docxCustomerParagraphIndex = 1
-	docxCategoryParagraphIndex = 11
-	docxCountryParagraphIndex  = 12
-
-	docxMadridTitleIndex     = 15
-	docxMadridCountryIndex   = 16
-	docxMadridCategoryIndex  = 17
-	docxMadridTableIndex     = 18
-	docxMadridSpacerEndIndex = 20
-
-	docxSingleTitleIndex    = 21
-	docxSingleCountryIndex  = 22
-	docxSingleCategoryIndex = 23
-	docxSingleTableIndex    = 24
-	docxSingleBlockSize     = 9
-
-	docxSummaryTitleIndex     = 28
-	docxSummaryParagraphIndex = 29
-	docxSummaryTableIndex     = 30
-)

@@ -44,12 +44,12 @@ export function NiceClassMultiSelect({
   return (
     <FilterableMultiSelect
       id={id}
-      ariaLabel='Nice Classes'
-      placeholder='Select nice classes'
-      searchLabel='Search nice classes'
-      searchPlaceholder='Search code or names...'
-      loadingMessage='Loading nice classes...'
-      emptyMessage='No nice classes found.'
+      ariaLabel='商标类别'
+      placeholder='请选择商标类别'
+      searchLabel='搜索商标类别'
+      searchPlaceholder='按类别编号或名称搜索'
+      loadingMessage='正在加载商标类别…'
+      emptyMessage='未找到匹配的商标类别。'
       options={options}
       value={value}
       loading={loading}
@@ -59,17 +59,17 @@ export function NiceClassMultiSelect({
 }
 
 function formatTriggerLabel(category: NiceCategory) {
-  return `Class ${category.code}`
+  return `第 ${category.code} 类`
 }
 
 function formatOptionTitle(category: NiceCategory) {
-  return `Class ${category.code}`
+  return `第 ${category.code} 类`
 }
 
 function formatOptionDescription(category: NiceCategory) {
-  return `${category.name_zh} / ${category.name_en}`
+  return category.name_zh
 }
 
 function formatOptionLabel(category: NiceCategory) {
-  return `${formatOptionTitle(category)} ${category.name_en}`
+  return `${formatOptionTitle(category)} ${category.name_zh}`
 }

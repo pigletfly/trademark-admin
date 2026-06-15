@@ -37,6 +37,7 @@ import { __resetAuthInterceptorState } from "@/lib/api";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Quotations } from "@/features/quotation";
 import { QuotationExportActions } from "@/features/quotation/components/quotation-export-actions";
+import { QuotationSnapshotView } from "@/features/quotation/components/quotation-snapshot";
 import { QuotationDetail } from "@/features/quotation/detail";
 import type { Quotation } from "@/features/quotation/types";
 import { __resetWizardStorePool } from "@/features/quotation/wizard/quotation-wizard";
@@ -173,7 +174,7 @@ describe("quotation integration", () => {
     await expect
       .element(screen.getByText("已提交").first())
       .toBeInTheDocument();
-    await expect.element(screen.getByText("application")).toBeInTheDocument();
+    await expect.element(screen.getByText("申请费")).toBeInTheDocument();
     await expect
       .element(screen.getByText("¥500.00").first())
       .toBeInTheDocument();
@@ -190,10 +191,13 @@ describe("quotation integration", () => {
 
     // Once approved, the export actions become visible.
     await expect
-      .element(screen.getByRole("button", { name: /导出 PDF/ }))
+      .element(screen.getByRole("button", { name: "导出 PDF" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: /导出 Word/ }))
+      .element(screen.getByRole("button", { name: "导出 Word" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "导出 Excel" }))
       .toBeInTheDocument();
   });
 });
@@ -264,7 +268,7 @@ describe("withdraw + copy + adjust", () => {
     await expect
       .element(screen.getByText("已提交").first())
       .toBeInTheDocument();
-    await expect.element(screen.getByText("application")).toBeInTheDocument();
+    await expect.element(screen.getByText("申请费")).toBeInTheDocument();
 
     // Open the adjust sheet.
     await userEvent.click(screen.getByRole("button", { name: "调价" }));
@@ -384,10 +388,10 @@ describe("QuotationExportActions", () => {
     );
 
     // Click the PDF dropdown trigger button.
-    await userEvent.click(screen.getByRole("button", { name: /导出 PDF/ }));
+    await userEvent.click(screen.getByRole("button", { name: "导出 PDF" }));
 
     // Click the bilingual menu item.
-    await userEvent.click(screen.getByText("中英双语 / Bilingual"));
+    await userEvent.click(screen.getByText("中英双语"));
 
     // Wait for mutation to settle by checking window.open was called.
     await expect.poll(() => openSpy.mock.calls.length).toBeGreaterThan(0);
@@ -396,6 +400,36 @@ describe("QuotationExportActions", () => {
     expect(capturedBody).toEqual({ format: "pdf", language: "bilingual" });
 
     openSpy.mockRestore();
+  });
+});
+
+describe("QuotationSnapshotView", () => {
+  it("renders method fee items in Chinese labels", async () => {
+    const screen = await render(
+      <QuotationSnapshotView
+        snapshot={{
+          lines: [
+            {
+              fee_item: "Madrid base official fee",
+              amount_cny_cents: 574640,
+            },
+            {
+              fee_item: "Single filing first class fee",
+              amount_cny_cents: 790000,
+            },
+          ],
+          total_cny_cents: 1364640,
+          signature: "sig-abc",
+        }}
+      />,
+    );
+
+    await expect
+      .element(screen.getByText("马德里基础官费"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("单一注册首类费"))
+      .toBeInTheDocument();
   });
 });
 
@@ -430,26 +464,21 @@ describe("quotation form", () => {
   ) {
     await userEvent.click(screen.getByRole("combobox", { name: /客户/ }));
     await userEvent.click(screen.getByRole("option", { name: /Acme/ }));
-    await selectNiceClass(screen, "9", /Class 9/);
-    await selectSingleCountry(screen, "CN", /China/);
+    await selectNiceClass(screen, "9", /第 9 类/);
+    await selectSingleCountry(screen, "CN", /中国/);
   }
 
   async function openNiceClassesSelect(
     screen: Awaited<ReturnType<typeof render>>,
   ) {
-    await userEvent.click(
-      screen.getByRole("combobox", { name: /Nice Classes/ }),
-    );
+    await userEvent.click(screen.getByRole("combobox", { name: /商标类别/ }));
   }
 
   async function searchNiceClasses(
     screen: Awaited<ReturnType<typeof render>>,
     query: string,
   ) {
-    await userEvent.fill(
-      screen.getByPlaceholder("Search code or names..."),
-      query,
-    );
+    await userEvent.fill(screen.getByPlaceholder("按类别编号或名称搜索"), query);
   }
 
   async function selectNiceClass(
@@ -460,22 +489,20 @@ describe("quotation form", () => {
     await openNiceClassesSelect(screen);
     await searchNiceClasses(screen, query);
     await userEvent.click(screen.getByRole("checkbox", { name }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
   }
 
   async function openSingleCountriesSelect(
     screen: Awaited<ReturnType<typeof render>>,
   ) {
-    await userEvent.click(
-      screen.getByRole("combobox", { name: /Single filing countries/ }),
-    );
+    await userEvent.click(screen.getByRole("combobox", { name: /单一注册/ }));
   }
 
   async function searchCountries(
     screen: Awaited<ReturnType<typeof render>>,
     query: string,
   ) {
-    await userEvent.fill(screen.getByPlaceholder("Search countries..."), query);
+    await userEvent.fill(screen.getByPlaceholder("按国家代码或名称搜索"), query);
   }
 
   async function selectSingleCountry(
@@ -486,15 +513,13 @@ describe("quotation form", () => {
     await openSingleCountriesSelect(screen);
     await searchCountries(screen, query);
     await userEvent.click(screen.getByRole("checkbox", { name }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
   }
 
   async function openMadridCountriesSelect(
     screen: Awaited<ReturnType<typeof render>>,
   ) {
-    await userEvent.click(
-      screen.getByRole("combobox", { name: /Madrid registration countries/ }),
-    );
+    await userEvent.click(screen.getByRole("combobox", { name: /马德里注册/ }));
   }
 
   async function selectMadridCountry(
@@ -505,7 +530,7 @@ describe("quotation form", () => {
     await openMadridCountriesSelect(screen);
     await searchCountries(screen, query);
     await userEvent.click(screen.getByRole("checkbox", { name }));
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
   }
 
   it("new form → save draft → detail keeps extended fields", async () => {
@@ -522,7 +547,7 @@ describe("quotation form", () => {
 
     await fillRequiredQuotationForm(screen);
 
-    await expect.element(screen.getByText(/application/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/申请费/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
 
     await expect.element(screen.getByText("草稿").first()).toBeInTheDocument();
@@ -570,31 +595,31 @@ describe("quotation form", () => {
 
     await userEvent.click(screen.getByRole("combobox", { name: /客户/ }));
     await userEvent.click(screen.getByRole("option", { name: /Acme/ }));
-    await selectNiceClass(screen, "9", /Class 9/);
-    await selectMadridCountry(screen, "US", /United States/);
-    await selectSingleCountry(screen, "AR", /Argentina/);
+    await selectNiceClass(screen, "9", /第 9 类/);
+    await selectMadridCountry(screen, "US", /美国/);
+    await selectSingleCountry(screen, "AR", /阿根廷/);
 
     await expect
-      .element(screen.getByText("Madrid base official fee"))
+      .element(screen.getByText("马德里基础官费"))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("Madrid designated country official fee"))
+      .element(screen.getByText("马德里指定国家官费"))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("Single filing first class fee"))
+      .element(screen.getByText("单一注册首类费"))
       .toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
 
     await expect.element(screen.getByText("草稿").first()).toBeInTheDocument();
     await expect
-      .element(screen.getByText("马德里注册：United States（US）"))
+      .element(screen.getByText("马德里注册：美国（US）"))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("单一注册：Argentina（AR）"))
+      .element(screen.getByText("单一注册：阿根廷（AR）"))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("国家：United States（US）、Argentina（AR）"))
+      .element(screen.getByText("国家：美国（US）、阿根廷（AR）"))
       .toBeInTheDocument();
   });
 
@@ -612,7 +637,7 @@ describe("quotation form", () => {
 
     await fillRequiredQuotationForm(screen);
 
-    await expect.element(screen.getByText(/application/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/申请费/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存并提交" }));
     await expect
       .element(screen.getByText("已提交").first())
@@ -646,14 +671,14 @@ describe("quotation form", () => {
     );
 
     await expect
-      .element(screen.getByRole("combobox", { name: /China/ }))
+      .element(screen.getByRole("combobox", { name: /中国/ }))
       .toBeInTheDocument();
-    await selectNiceClass(screen, "9", /Class 9/);
+    await selectNiceClass(screen, "9", /第 9 类/);
     await userEvent.click(screen.getByRole("radio", { name: /B 代理/ }));
     await expect
       .element(screen.getByRole("radio", { name: /B 代理/ }))
       .toBeChecked();
-    await expect.element(screen.getByText(/application/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/申请费/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存并提交" }));
     await expect
       .element(screen.getByText("已提交").first())
@@ -739,15 +764,15 @@ describe("quotation form", () => {
     await searchNiceClasses(screen, "35");
 
     await expect
-      .element(screen.getByRole("checkbox", { name: /Class 35/ }))
+      .element(screen.getByRole("checkbox", { name: /第 35 类/ }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("checkbox", { name: /Class 9/ }))
+      .element(screen.getByRole("checkbox", { name: /第 9 类/ }))
       .not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /Class 35/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /第 35 类/ }));
     await expect
-      .element(screen.getByRole("combobox", { name: /Class 35/ }))
+      .element(screen.getByRole("combobox", { name: /第 35 类/ }))
       .toBeInTheDocument();
   });
 
@@ -764,10 +789,10 @@ describe("quotation form", () => {
     );
 
     await fillRequiredQuotationForm(screen);
-    await expect.element(screen.getByText(/application/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/申请费/)).toBeInTheDocument();
 
     await openNiceClassesSelect(screen);
-    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await userEvent.click(screen.getByRole("button", { name: "清空" }));
 
     await expect
       .element(screen.getByRole("button", { name: "保存草稿" }))
@@ -776,7 +801,7 @@ describe("quotation form", () => {
       .element(screen.getByRole("button", { name: "保存并提交" }))
       .toBeDisabled();
     await expect
-      .element(screen.getByRole("combobox", { name: /Select nice classes/ }))
+      .element(screen.getByRole("combobox", { name: /请选择商标类别/ }))
       .toBeInTheDocument();
   });
 
@@ -794,13 +819,13 @@ describe("quotation form", () => {
 
     await openNiceClassesSelect(screen);
     await searchNiceClasses(screen, "35");
-    await userEvent.click(screen.getByRole("button", { name: "Select All" }));
+    await userEvent.click(screen.getByRole("button", { name: "全选" }));
 
     await expect
-      .element(screen.getByRole("combobox", { name: /Class 35/ }))
+      .element(screen.getByRole("combobox", { name: /第 35 类/ }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("combobox", { name: /Class 9/ }))
+      .element(screen.getByRole("combobox", { name: /第 9 类/ }))
       .not.toBeInTheDocument();
   });
 
@@ -820,17 +845,15 @@ describe("quotation form", () => {
     await searchCountries(screen, "US");
 
     await expect
-      .element(screen.getByRole("checkbox", { name: /United States/ }))
+      .element(screen.getByRole("checkbox", { name: /美国/ }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("checkbox", { name: /China/ }))
+      .element(screen.getByRole("checkbox", { name: /中国/ }))
       .not.toBeInTheDocument();
 
-    await userEvent.click(
-      screen.getByRole("checkbox", { name: /United States/ }),
-    );
+    await userEvent.click(screen.getByRole("checkbox", { name: /美国/ }));
     await expect
-      .element(screen.getByRole("combobox", { name: /United States/ }))
+      .element(screen.getByRole("combobox", { name: /美国/ }))
       .toBeInTheDocument();
   });
 });

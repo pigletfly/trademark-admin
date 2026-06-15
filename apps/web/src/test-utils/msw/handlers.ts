@@ -91,6 +91,17 @@ let singleClassPricingEntries: Array<{
   updated_at: string;
 }> = [];
 
+function applySingleClassTaxMultiplier(cents: number, multiplier: number) {
+  return Math.trunc((cents * multiplier) / 100);
+}
+
+function deriveSingleClassTaxedCents(cents: number) {
+  return {
+    tax6: applySingleClassTaxMultiplier(cents, 106),
+    tax1: applySingleClassTaxMultiplier(cents, 101),
+  };
+}
+
 // In-memory quotations store.
 let quotations: Array<{
   id: string;
@@ -703,6 +714,12 @@ export const defaultHandlers = [
         entry.effective_to = body.effective_from;
       }
     }
+    const firstClassDerived = deriveSingleClassTaxedCents(
+      body.first_class_fee_cny_cents,
+    );
+    const additionalClassDerived = deriveSingleClassTaxedCents(
+      body.additional_class_fee_cny_cents,
+    );
     const now = new Date().toISOString();
     const row = {
       id: "sp_" + Math.random().toString(36).slice(2, 10),
@@ -710,13 +727,11 @@ export const defaultHandlers = [
       continent: body.continent,
       country_area: body.country_area,
       first_class_fee_cny_cents: body.first_class_fee_cny_cents,
-      first_class_fee_tax6_cny_cents: body.first_class_fee_tax6_cny_cents,
-      first_class_fee_tax1_cny_cents: body.first_class_fee_tax1_cny_cents,
+      first_class_fee_tax6_cny_cents: firstClassDerived.tax6,
+      first_class_fee_tax1_cny_cents: firstClassDerived.tax1,
       additional_class_fee_cny_cents: body.additional_class_fee_cny_cents,
-      additional_class_fee_tax6_cny_cents:
-        body.additional_class_fee_tax6_cny_cents,
-      additional_class_fee_tax1_cny_cents:
-        body.additional_class_fee_tax1_cny_cents,
+      additional_class_fee_tax6_cny_cents: additionalClassDerived.tax6,
+      additional_class_fee_tax1_cny_cents: additionalClassDerived.tax1,
       required_documents: body.required_documents ?? "",
       notarization_fee: body.notarization_fee ?? "",
       acceptance_time: body.acceptance_time ?? "",
@@ -1300,7 +1315,7 @@ export const defaultHandlers = [
         {
           id: "00000000-0000-0000-0000-000000000101",
           code: "US",
-          name_zh: "United States",
+          name_zh: "美国",
           name_en: "United States",
           is_madrid_member: true,
           requires_notarization: false,
@@ -1310,7 +1325,7 @@ export const defaultHandlers = [
         {
           id: "00000000-0000-0000-0000-000000000102",
           code: "AR",
-          name_zh: "Argentina",
+          name_zh: "阿根廷",
           name_en: "Argentina",
           is_madrid_member: false,
           requires_notarization: false,
@@ -1396,17 +1411,23 @@ export function seedSingleClassPricingEntry(p: {
   additional_class_fee_cny_cents: number;
 }) {
   const now = new Date().toISOString();
+  const firstClassDerived = deriveSingleClassTaxedCents(
+    p.first_class_fee_cny_cents,
+  );
+  const additionalClassDerived = deriveSingleClassTaxedCents(
+    p.additional_class_fee_cny_cents,
+  );
   singleClassPricingEntries.push({
     id: randomUUID(),
     country_id: p.country_id,
     continent: p.continent,
     country_area: p.country_area,
     first_class_fee_cny_cents: p.first_class_fee_cny_cents,
-    first_class_fee_tax6_cny_cents: p.first_class_fee_cny_cents,
-    first_class_fee_tax1_cny_cents: p.first_class_fee_cny_cents,
+    first_class_fee_tax6_cny_cents: firstClassDerived.tax6,
+    first_class_fee_tax1_cny_cents: firstClassDerived.tax1,
     additional_class_fee_cny_cents: p.additional_class_fee_cny_cents,
-    additional_class_fee_tax6_cny_cents: p.additional_class_fee_cny_cents,
-    additional_class_fee_tax1_cny_cents: p.additional_class_fee_cny_cents,
+    additional_class_fee_tax6_cny_cents: additionalClassDerived.tax6,
+    additional_class_fee_tax1_cny_cents: additionalClassDerived.tax1,
     required_documents: "",
     notarization_fee: "",
     acceptance_time: "",

@@ -105,6 +105,49 @@ func TestRenderDOCX_UsesBundledTemplateAndReplacesDynamicSections(t *testing.T) 
 	}
 }
 
+func TestRenderDOCX_UsesGeneratedAtForChineseDateParagraph(t *testing.T) {
+	var buf bytes.Buffer
+	v := sampleTemplateView()
+	v.GeneratedAt = time.Date(2026, 6, 14, 9, 0, 0, 0, time.UTC)
+
+	if err := RenderDOCX(&buf, v); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	r, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("zip reader: %v", err)
+	}
+	var doc string
+	for _, f := range r.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open document.xml: %v", err)
+		}
+		raw, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read document.xml: %v", err)
+		}
+		doc = string(raw)
+		break
+	}
+	if doc == "" {
+		t.Fatal("word/document.xml missing")
+	}
+	plain := extractTextRuns(t, doc)
+
+	if !strings.Contains(plain, "2026年6月14日") {
+		t.Fatalf("generated date missing from document\n%s", plain)
+	}
+	if strings.Contains(plain, "2026年6月1日") {
+		t.Fatalf("template date still present\n%s", plain)
+	}
+}
+
 func TestRenderDOCX_SingleOnlyRemovesMadridSectionAndRenumbersSummary(t *testing.T) {
 	var buf bytes.Buffer
 	v := sampleSingleOnlyTemplateView()

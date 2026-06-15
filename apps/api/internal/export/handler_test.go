@@ -199,6 +199,52 @@ func TestExportDOCX_HappyPath_ReturnsZipWithChineseCustomerName(t *testing.T) {
 	}
 }
 
+func TestExportDOCX_HappyPath_UsesCustomerNameAndCurrentDateFilename(t *testing.T) {
+	db := bootPg(t)
+	gin.SetMode(gin.TestMode)
+
+	var roleIDStr string
+	_ = db.Raw(`SELECT id FROM roles WHERE code = 'admin'`).Scan(&roleIDStr).Error
+	roleID, _ := uuid.Parse(roleIDStr)
+	userID := uuid.New()
+	_ = db.Exec(`INSERT INTO users (id, name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`,
+		userID, "Admin", "admin@ex.com", "x", roleID).Error
+	custID := uuid.New()
+	_ = db.Exec(`INSERT INTO customers (id, name, created_by) VALUES (?, ?, ?)`,
+		custID, "Acme 有限公司", userID).Error
+	countryID := uuid.New()
+	_ = db.Exec(`INSERT INTO countries (id, code, name_zh, name_en) VALUES (?, ?, ?, ?)`,
+		countryID, "CN", "中国", "China").Error
+
+	snap := map[string]any{
+		"lines":           []map[string]any{{"fee_item": "application", "amount_cny_cents": 10000}},
+		"total_cny_cents": 10000,
+		"signature":       "sig-abc",
+	}
+	snapJSON, _ := json.Marshal(snap)
+	submitted := time.Now().Add(-2 * time.Hour)
+	reviewed := time.Now().Add(-1 * time.Hour)
+
+	qID := uuid.New()
+	_ = db.Exec(`INSERT INTO quotations
+		(id, customer_id, country_id, service_tier, status, snapshot_json, total_cny_cents, signature, serial_no, submitted_at, reviewed_at, reviewed_by, created_by)
+		VALUES (?, ?, ?, 'basic', 'approved', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qID, custID, countryID, string(snapJSON), int64(10000), "sig-abc", "Q202604260001", submitted, reviewed, userID, userID).Error
+
+	r := buildRouter(t, db, userID, "admin")
+	req := httptest.NewRequest("GET", "/api/v1/quotations/"+qID.String()+"/export.docx", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body %s", w.Code, w.Body.String())
+	}
+	wantFilename := `attachment; filename="Acme 有限公司-` + time.Now().Format("20060102") + `.docx"`
+	if got := w.Header().Get("Content-Disposition"); got != wantFilename {
+		t.Fatalf("content-disposition: got %q want %q", got, wantFilename)
+	}
+}
+
 func TestExportDOCX_IncludesSeparateMethodCountryGroups(t *testing.T) {
 	db := bootPg(t)
 	gin.SetMode(gin.TestMode)
@@ -517,6 +563,10 @@ func TestHandler_Export_DOCX_DownloadRendersTemplateContent(t *testing.T) {
 	}
 	if got := downloadResp.Header().Get("Content-Type"); got != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
 		t.Fatalf("content-type: got %q", got)
+	}
+	wantFilename := `attachment; filename="Acme 有限公司-` + time.Now().Format("20060102") + `.docx"`
+	if got := downloadResp.Header().Get("Content-Disposition"); got != wantFilename {
+		t.Fatalf("content-disposition: got %q want %q", got, wantFilename)
 	}
 
 	zr, err := zip.NewReader(bytes.NewReader(downloadResp.Body.Bytes()), int64(downloadResp.Body.Len()))

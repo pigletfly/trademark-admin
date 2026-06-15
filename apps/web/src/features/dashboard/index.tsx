@@ -82,7 +82,7 @@ export function Dashboard() {
             <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
               <Card>
                 <CardHeader>
-                  <CardTitle>状态分布 / Status Breakdown</CardTitle>
+                  <CardTitle>状态分布</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ul className='space-y-1 text-sm'>
@@ -102,7 +102,7 @@ export function Dashboard() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>近期报价 / Recent Quotations</CardTitle>
+                  <CardTitle>近期报价</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <RecentQuotations items={data.recent_quotations ?? []} />

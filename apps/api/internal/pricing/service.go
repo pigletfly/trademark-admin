@@ -140,28 +140,25 @@ func (s *Service) CreateOrReplaceSingleClass(ctx context.Context, callerID uuid.
 	if req.Continent == "" || req.CountryArea == "" {
 		return nil, errors.New("pricing: continent and country_area required")
 	}
-	if req.FirstClassFeeCNYCents < 0 ||
-		req.FirstClassFeeTax6CNYCents < 0 ||
-		req.FirstClassFeeTax1CNYCents < 0 ||
-		req.AdditionalClassFeeCNYCents < 0 ||
-		req.AdditionalClassFeeTax6CNYCents < 0 ||
-		req.AdditionalClassFeeTax1CNYCents < 0 {
+	if req.FirstClassFeeCNYCents < 0 || req.AdditionalClassFeeCNYCents < 0 {
 		return nil, errors.New("pricing: amount fields must be >= 0")
 	}
 	eff, err := parseEffectiveFrom(req.EffectiveFrom)
 	if err != nil {
 		return nil, err
 	}
+	firstClassTax6, firstClassTax1 := deriveSingleClassTaxedCents(req.FirstClassFeeCNYCents)
+	additionalClassTax6, additionalClassTax1 := deriveSingleClassTaxedCents(req.AdditionalClassFeeCNYCents)
 	row, err := s.repo.ReplaceActiveSingleClass(ctx, NewSingleClassEntry{
 		CountryID:                      req.CountryID,
 		Continent:                      req.Continent,
 		CountryArea:                    req.CountryArea,
 		FirstClassFeeCNYCents:          req.FirstClassFeeCNYCents,
-		FirstClassFeeTax6CNYCents:      req.FirstClassFeeTax6CNYCents,
-		FirstClassFeeTax1CNYCents:      req.FirstClassFeeTax1CNYCents,
+		FirstClassFeeTax6CNYCents:      firstClassTax6,
+		FirstClassFeeTax1CNYCents:      firstClassTax1,
 		AdditionalClassFeeCNYCents:     req.AdditionalClassFeeCNYCents,
-		AdditionalClassFeeTax6CNYCents: req.AdditionalClassFeeTax6CNYCents,
-		AdditionalClassFeeTax1CNYCents: req.AdditionalClassFeeTax1CNYCents,
+		AdditionalClassFeeTax6CNYCents: additionalClassTax6,
+		AdditionalClassFeeTax1CNYCents: additionalClassTax1,
 		RequiredDocuments:              req.RequiredDocuments,
 		NotarizationFee:                req.NotarizationFee,
 		AcceptanceTime:                 req.AcceptanceTime,
@@ -243,6 +240,10 @@ func parseEffectiveFrom(value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("pricing: invalid effective_from: %w", err)
 	}
 	return eff, nil
+}
+
+func deriveSingleClassTaxedCents(cents int64) (tax6 int64, tax1 int64) {
+	return cents * 106 / 100, cents * 101 / 100
 }
 
 func parseEffectiveTo(value *string) (time.Time, error) {

@@ -1,5 +1,5 @@
 // Mirrors apps/api/internal/dashboard/dto.go.
-import type { QuotationStatus } from '@/features/quotation/types'
+import type { QuotationStatus, ServiceTier } from '@/features/quotation/types'
 
 export interface QuotationStatusCount {
   status: QuotationStatus
@@ -9,7 +9,7 @@ export interface QuotationStatusCount {
 export interface RecentQuotation {
   id: string
   status: QuotationStatus
-  service_tier: string
+  service_tier: ServiceTier
   total_cny_cents?: number | null
   created_at: string
   updated_at: string

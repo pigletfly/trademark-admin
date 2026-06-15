@@ -16,9 +16,9 @@ export function ResumeBanner({ onContinue, onDiscard }: Props) {
   return (
     <Alert className='mb-4'>
       <RotateCcw className='h-4 w-4' />
-      <AlertTitle>检测到未完成的草稿 / Unfinished draft detected</AlertTitle>
+      <AlertTitle>检测到未完成的草稿</AlertTitle>
       <AlertDescription className='flex items-center justify-between gap-3'>
-        <span>要继续上次的草稿,还是重新开始?</span>
+        <span>要继续上次的草稿，还是重新开始？</span>
         <div className='flex gap-2'>
           <Button size='sm' variant='outline' onClick={onDiscard}>
             <X className='mr-1 h-4 w-4' /> 放弃

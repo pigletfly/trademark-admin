@@ -88,6 +88,11 @@ describe('dashboard integration', () => {
     await expect.element(screen.getByText('2').first()).toBeInTheDocument()
 
     // Recent quotations heading shows.
-    await expect.element(screen.getByText(/近期报价/)).toBeInTheDocument()
+    await expect.element(screen.getByText('状态分布')).toBeInTheDocument()
+    await expect.element(screen.getByText('近期报价')).toBeInTheDocument()
+    await expect.element(screen.getByText('基础')).toBeInTheDocument()
+    await expect.element(screen.getByText('标准')).toBeInTheDocument()
+    await expect.element(screen.getByText('basic')).not.toBeInTheDocument()
+    await expect.element(screen.getByText('standard')).not.toBeInTheDocument()
   })
 })

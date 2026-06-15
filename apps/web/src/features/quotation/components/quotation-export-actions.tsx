@@ -31,18 +31,18 @@ export function QuotationExportActions({ quotation }: Props) {
         <DropdownMenuTrigger asChild>
           <Button variant='default' disabled={disabled}>
             <FileDown className='mr-2 h-4 w-4' />
-            导出 PDF / Export PDF
+            导出 PDF
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem onClick={() => trigger('pdf', 'bilingual')}>
-            中英双语 / Bilingual
+            中英双语
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => trigger('pdf', 'zh')}>
-            仅中文 / Chinese only
+            仅中文
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => trigger('pdf', 'en')}>
-            仅英文 / English only
+            仅英文
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -53,7 +53,7 @@ export function QuotationExportActions({ quotation }: Props) {
         onClick={() => trigger('docx', 'bilingual')}
       >
         <FileText className='mr-2 h-4 w-4' />
-        导出 Word / Export Word
+        导出 Word
       </Button>
       <Button
         variant='outline'
@@ -61,7 +61,7 @@ export function QuotationExportActions({ quotation }: Props) {
         onClick={() => trigger('xlsx', 'bilingual')}
       >
         <FileSpreadsheet className='mr-2 h-4 w-4' />
-        导出 Excel / Export Excel
+        导出 Excel
       </Button>
     </div>
   )

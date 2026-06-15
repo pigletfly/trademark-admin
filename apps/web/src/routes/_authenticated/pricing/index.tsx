@@ -2,10 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 import { meQueryOptions } from '@/features/auth/hooks'
 import { countriesQueryOptions } from '@/features/catalog/hooks'
-import {
-  madridPricingListQueryOptions,
-  singleClassPricingListQueryOptions,
-} from '@/features/pricing/hooks'
+import { pricingListQueryOptions } from '@/features/pricing/hooks'
 import { Pricing } from '@/features/pricing'
 
 const searchSchema = z.object({
@@ -23,17 +20,11 @@ export const Route = createFileRoute('/_authenticated/pricing/')({
   loaderDeps: ({ search }) => ({ search }),
   loader: async ({ context, deps }) => {
     await context.queryClient.ensureQueryData(countriesQueryOptions())
-    await context.queryClient.ensureQueryData(
-      singleClassPricingListQueryOptions({
-        country_id: deps.search.country_id,
-      })
-    )
-    await context.queryClient.ensureQueryData(
-      madridPricingListQueryOptions({
-        country_id: deps.search.country_id,
-        include_base: true,
-      })
-    )
+    if (deps.search.country_id) {
+      await context.queryClient.ensureQueryData(
+        pricingListQueryOptions({ country_id: deps.search.country_id })
+      )
+    }
   },
   component: Pricing,
 })

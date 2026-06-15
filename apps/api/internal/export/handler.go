@@ -93,7 +93,7 @@ func (h *Handler) ExportDOCX(c *gin.Context) {
 	}
 
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="quotation-%s.docx"`, q.ID.String()[:8]))
+	c.Header("Content-Disposition", `attachment; filename="`+docxAttachmentFilename(view.CustomerName, time.Now())+`"`)
 	c.Status(http.StatusOK)
 	if err := RenderDOCX(c.Writer, view); err != nil {
 		// Response has already started — just drop it. Gin will surface via recover middleware.
@@ -192,6 +192,9 @@ func (h *Handler) Download(c *gin.Context) {
 		ext = "xlsx"
 	}
 	fname := "quotation-" + f.QuotationID.String()[:8] + "-" + string(f.Language) + "." + ext
+	if f.Format == FormatDOCX {
+		fname = h.docxDownloadFilename(c.Request.Context(), f.QuotationID, fname)
+	}
 	c.Header("Content-Type", ctype)
 	c.Header("Content-Disposition", `attachment; filename="`+fname+`"`)
 	c.Header("Content-Length", strconv.FormatInt(f.FileSize, 10))
@@ -201,6 +204,51 @@ func (h *Handler) Download(c *gin.Context) {
 		// Headers already sent; nothing useful to surface here.
 		_ = err
 	}
+}
+
+func (h *Handler) docxDownloadFilename(ctx context.Context, quotationID uuid.UUID, fallback string) string {
+	customerName, err := h.lookupCustomerName(ctx, quotationID)
+	if err != nil {
+		return fallback
+	}
+	return docxAttachmentFilename(customerName, time.Now())
+}
+
+func (h *Handler) lookupCustomerName(ctx context.Context, quotationID uuid.UUID) (string, error) {
+	q, err := h.quotSvc.Get(ctx, quotationID)
+	if err != nil {
+		return "", err
+	}
+	cust, err := h.custSvc.Get(ctx, uuid.Nil, customer.RoleAdmin, q.CustomerID)
+	if err != nil {
+		return "", err
+	}
+	return cust.Name, nil
+}
+
+func docxAttachmentFilename(customerName string, now time.Time) string {
+	return sanitizeAttachmentFilenameBase(customerName) + "-" + now.Format("20060102") + ".docx"
+}
+
+func sanitizeAttachmentFilenameBase(name string) string {
+	replacer := strings.NewReplacer(
+		"\r", " ",
+		"\n", " ",
+		"/", " ",
+		"\\", " ",
+		"\"", "",
+		":", " ",
+		"*", " ",
+		"?", " ",
+		"<", " ",
+		">", " ",
+		"|", " ",
+	)
+	cleaned := strings.Join(strings.Fields(replacer.Replace(strings.TrimSpace(name))), " ")
+	if cleaned == "" {
+		return "quotation"
+	}
+	return cleaned
 }
 
 // buildView collects the data needed to render a quotation. It enforces

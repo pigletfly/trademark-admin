@@ -21,8 +21,8 @@ export function CountryMultiSelect({
   value,
   onValueChange,
   loading = false,
-  ariaLabel = 'Countries',
-  placeholder = 'Select countries',
+  ariaLabel = '国家/地区',
+  placeholder = '请选择国家/地区',
 }: CountryMultiSelectProps) {
   const options = useMemo(
     () =>
@@ -31,7 +31,7 @@ export function CountryMultiSelect({
           value: country.id,
           triggerLabel: formatTriggerLabel(country),
           optionTitle: formatOptionTitle(country),
-          optionDescription: country.name_en,
+          optionDescription: undefined,
           accessibleLabel: formatOptionLabel(country),
           searchText: [country.code, country.name_zh, country.name_en].join(
             ' '
@@ -46,10 +46,10 @@ export function CountryMultiSelect({
       id={id}
       ariaLabel={ariaLabel}
       placeholder={placeholder}
-      searchLabel='Search countries'
-      searchPlaceholder='Search countries...'
-      loadingMessage='Loading countries...'
-      emptyMessage='No countries found.'
+      searchLabel='搜索国家/地区'
+      searchPlaceholder='按国家代码或名称搜索'
+      loadingMessage='正在加载国家/地区…'
+      emptyMessage='未找到匹配的国家/地区。'
       options={options}
       value={value}
       loading={loading}
@@ -59,13 +59,13 @@ export function CountryMultiSelect({
 }
 
 function formatTriggerLabel(country: Country) {
-  return `${country.name_en} (${country.code})`
+  return `${country.name_zh}（${country.code}）`
 }
 
 function formatOptionTitle(country: Country) {
-  return `${country.name_zh} (${country.code})`
+  return `${country.name_zh}（${country.code}）`
 }
 
 function formatOptionLabel(country: Country) {
-  return `${country.name_zh} ${country.name_en} ${country.code}`
+  return `${country.name_zh} ${country.code}`
 }

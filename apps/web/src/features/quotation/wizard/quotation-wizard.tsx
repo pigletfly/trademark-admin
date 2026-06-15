@@ -39,6 +39,7 @@ import {
   useUpdateAndSubmit,
   useUpdateQuotationDraft,
 } from '../hooks/use-quotation-mutations'
+import { translateFeeItemLabel } from '../fee-item-label'
 import type {
   AgentLevel,
   CreateQuotationRequest,
@@ -71,8 +72,8 @@ const AGENT_LEVEL_OPTIONS: {
   label: string
   description: string
 }[] = [
-  { value: 'agent_a', label: 'A 代理', description: 'Default agent tier' },
-  { value: 'agent_b', label: 'B 代理', description: 'Alternate agent tier' },
+  { value: 'agent_a', label: 'A 代理', description: '默认代理级别' },
+  { value: 'agent_b', label: 'B 代理', description: '备选代理级别' },
 ]
 
 const INFO_SECTION_OPTIONS: {
@@ -182,7 +183,7 @@ export function QuotationWizard({ mode }: Props) {
             <div className='grid gap-5'>
               <section className='grid gap-4'>
                 <div className='grid gap-2'>
-                  <Label htmlFor='quotation-customer'>客户 / Customer</Label>
+                  <Label htmlFor='quotation-customer'>客户</Label>
                   <Select
                     value={draft.customer_id}
                     onValueChange={(value) =>
@@ -203,9 +204,7 @@ export function QuotationWizard({ mode }: Props) {
                 </div>
 
                 <section className='grid gap-3'>
-                  <Label htmlFor='quotation-nice-classes'>
-                    商标类别 / Nice Classes
-                  </Label>
+                  <Label htmlFor='quotation-nice-classes'>商标类别</Label>
                   <NiceClassMultiSelect
                     id='quotation-nice-classes'
                     categories={niceCategories.data ?? []}
@@ -218,13 +217,11 @@ export function QuotationWizard({ mode }: Props) {
                 </section>
 
                 <section className='grid gap-3'>
-                  <Label htmlFor='quotation-madrid-countries'>
-                    马德里注册 / Madrid Registration
-                  </Label>
+                  <Label htmlFor='quotation-madrid-countries'>马德里注册</Label>
                   <CountryMultiSelect
                     id='quotation-madrid-countries'
-                    ariaLabel='Madrid registration countries'
-                    placeholder='Select Madrid countries'
+                    ariaLabel='马德里注册国家'
+                    placeholder='请选择马德里注册国家'
                     countries={madridCountries}
                     value={draft.madrid_country_ids}
                     loading={countries.isLoading}
@@ -238,13 +235,11 @@ export function QuotationWizard({ mode }: Props) {
                 </section>
 
                 <section className='grid gap-3'>
-                  <Label htmlFor='quotation-single-countries'>
-                    单一注册 / Single Filing
-                  </Label>
+                  <Label htmlFor='quotation-single-countries'>单一注册</Label>
                   <CountryMultiSelect
                     id='quotation-single-countries'
-                    ariaLabel='Single filing countries'
-                    placeholder='Select single-filing countries'
+                    ariaLabel='单一注册国家'
+                    placeholder='请选择单一注册国家'
                     countries={countries.data ?? []}
                     value={draft.single_country_ids}
                     loading={countries.isLoading}
@@ -255,7 +250,7 @@ export function QuotationWizard({ mode }: Props) {
                 </section>
 
                 <section className='grid gap-3'>
-                  <Label>代理级别 / Agent Level</Label>
+                  <Label>代理级别</Label>
                   <RadioGroup
                     value={draft.agent_level}
                     onValueChange={(value) =>
@@ -283,7 +278,7 @@ export function QuotationWizard({ mode }: Props) {
                   </RadioGroup>
                 </section>
 
-                <MultiCheckSection title='其他信息 / Extra Sections'>
+                <MultiCheckSection title='其他信息'>
                   {INFO_SECTION_OPTIONS.map((option) => (
                     <CheckboxRow
                       key={option.value}
@@ -304,7 +299,7 @@ export function QuotationWizard({ mode }: Props) {
                 </MultiCheckSection>
 
                 <div className='grid gap-2'>
-                  <Label htmlFor='quotation-notes'>备注 / Notes</Label>
+                  <Label htmlFor='quotation-notes'>备注</Label>
                   <Textarea
                     id='quotation-notes'
                     value={draft.notes}
@@ -416,7 +411,7 @@ function PreviewPanel({
   return (
     <div className='grid gap-4 rounded-md border bg-muted/20 p-4'>
       <div>
-        <h3 className='font-medium'>报价预览 / Preview</h3>
+        <h3 className='font-medium'>报价预览</h3>
         <p className='text-sm text-muted-foreground'>
           合计会随客户、国家、注册方式和代理级别自动更新。
         </p>
@@ -429,17 +424,17 @@ function PreviewPanel({
       )}
       {isFormValid && preview.isLoading && (
         <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-          <Loader2 className='h-4 w-4 animate-spin' /> 计算中 / Computing…
+          <Loader2 className='h-4 w-4 animate-spin' /> 计算中…
         </div>
       )}
       {isFormValid && preview.isError && (
         <Alert variant='destructive'>
           <AlertCircle className='h-4 w-4' />
-          <AlertTitle>预览失败 / Preview failed</AlertTitle>
+          <AlertTitle>预览失败</AlertTitle>
           <AlertDescription className='grid gap-3'>
             <span>{previewErrorMessage(preview.error)}</span>
             <Button type='button' variant='outline' size='sm' onClick={onRetry}>
-              重试 / Retry
+              重试
             </Button>
           </AlertDescription>
         </Alert>
@@ -451,7 +446,9 @@ function PreviewPanel({
               key={`${line.fee_item}-${index}`}
               className='flex items-center justify-between gap-3 text-sm'
             >
-              <span className='min-w-0 truncate'>{line.fee_item}</span>
+              <span className='min-w-0 truncate'>
+                {translateFeeItemLabel(line.fee_item)}
+              </span>
               <span className='font-mono'>
                 {formatCNY(line.amount_cny_cents)}
               </span>
@@ -459,7 +456,7 @@ function PreviewPanel({
           ))}
           <Separator />
           <div className='flex items-center justify-between gap-3 font-medium'>
-            <span>合计 / Total</span>
+            <span>合计</span>
             <span className='font-mono'>
               {formatCNY(preview.data.total_cny_cents)}
             </span>

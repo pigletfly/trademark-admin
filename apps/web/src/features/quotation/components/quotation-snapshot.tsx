@@ -7,6 +7,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { QuotationSnapshot } from '../types'
+import { translateFeeItemLabel } from '../fee-item-label'
 
 function formatCNY(cents: number): string {
   return (
@@ -37,7 +38,7 @@ export function QuotationSnapshotView({
             {snapshot.lines.map((l, index) => (
               <TableRow key={`${l.fee_item}-${index}`}>
                 <TableCell className='font-mono text-sm'>
-                  {l.fee_item}
+                  {translateFeeItemLabel(l.fee_item)}
                 </TableCell>
                 <TableCell className='text-right font-medium'>
                   {formatCNY(l.amount_cny_cents)}
