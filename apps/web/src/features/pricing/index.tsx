@@ -321,40 +321,36 @@ export function Pricing() {
               </section>
 
               <section className='flex flex-col gap-3'>
+                <div>
+                  <h3 className='text-lg font-semibold'>马德里国家费</h3>
+                  <p className='text-sm text-muted-foreground'>
+                    国家费支持按国家筛选、新增和行内修改。
+                  </p>
+                </div>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Select
-                      value={selectedCountryId ?? ALL_COUNTRIES}
-                      onValueChange={(value) =>
-                        setCountry(
-                          value === ALL_COUNTRIES ? undefined : value
-                        )
-                      }
+                  <Select
+                    value={selectedCountryId ?? ALL_COUNTRIES}
+                    onValueChange={(value) =>
+                      setCountry(value === ALL_COUNTRIES ? undefined : value)
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label='马德里国家费国家筛选'
+                      className='w-56'
                     >
-                      <SelectTrigger
-                        aria-label='马德里国家费国家筛选'
-                        className='w-56'
-                      >
-                        <SelectValue placeholder='全部国家/地区' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_COUNTRIES}>
-                          全部国家/地区
+                      <SelectValue placeholder='全部国家/地区' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_COUNTRIES}>
+                        全部国家/地区
+                      </SelectItem>
+                      {countries.map((country) => (
+                        <SelectItem key={country.id} value={country.id}>
+                          {country.name_zh} · {country.code}
                         </SelectItem>
-                        {countries.map((country) => (
-                          <SelectItem key={country.id} value={country.id}>
-                            {country.name_zh} · {country.code}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div>
-                      <h3 className='text-lg font-semibold'>马德里国家费</h3>
-                      <p className='text-sm text-muted-foreground'>
-                        国家费支持按国家筛选、新增和行内修改。
-                      </p>
-                    </div>
-                  </div>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {canEdit && (
                     <div className='flex flex-col items-end gap-1'>
                       <Button
@@ -535,8 +531,7 @@ function MadridBaseTable({
         <TableBody>
           <TableRow>
             <TableCell>
-              <div className='font-medium'>{row.country_area}</div>
-              <div className='text-xs text-muted-foreground'>基础注册费</div>
+              <div className='font-medium'>基础注册费</div>
             </TableCell>
             <TableCell>{formatCHF(row.official_fee_chf_cents)}</TableCell>
             <TableCell>{formatCNY(row.agency_fee_cny_cents)}</TableCell>
