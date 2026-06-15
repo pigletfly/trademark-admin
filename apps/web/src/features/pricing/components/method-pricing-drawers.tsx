@@ -2,7 +2,6 @@ import { useEffect, useMemo } from 'react'
 import { z } from 'zod'
 import {
   useForm,
-  useWatch,
   type Control,
   type FieldValues,
   type Path,
@@ -100,10 +99,11 @@ const singleClassSchema = z.object({
 
 type MadridValues = z.infer<typeof madridSchema>
 type SingleClassValues = z.infer<typeof singleClassSchema>
+type MadridDrawerKind = 'base' | 'country'
+type MadridDrawerMode = 'create' | 'edit'
+type SingleClassDrawerMode = 'create' | 'edit'
 
 const MADRID_BASE_COUNTRY_AREA = 'Basic registration fee - black and white mark'
-const SINGLE_CLASS_TAX6_MULTIPLIER = 106
-const SINGLE_CLASS_TAX1_MULTIPLIER = 101
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -117,67 +117,25 @@ function yuanToCents(value: string): number {
   return Math.round(Number(value) * 100)
 }
 
-function applyMultiplier(cents: number, multiplier: number): number {
-  return Math.trunc((cents * multiplier) / 100)
-}
-
-function deriveSingleClassTaxedCents(cents: number): {
-  tax6: number
-  tax1: number
-} {
-  return {
-    tax6: applyMultiplier(cents, SINGLE_CLASS_TAX6_MULTIPLIER),
-    tax1: applyMultiplier(cents, SINGLE_CLASS_TAX1_MULTIPLIER),
-  }
-}
-
-function deriveSingleClassTaxedYuan(value: string | undefined): {
-  tax6: string
-  tax1: string
-} {
-  const trimmed = value?.trim() ?? ''
-  if (trimmed === '') {
-    return { tax6: '0.00', tax1: '0.00' }
-  }
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric) || numeric < 0) {
-    return { tax6: '0.00', tax1: '0.00' }
-  }
-  const { tax6, tax1 } = deriveSingleClassTaxedCents(yuanToCents(trimmed))
-  return {
-    tax6: centsToYuan(tax6),
-    tax1: centsToYuan(tax1),
-  }
-}
-
-function deriveSingleClassTaxedYuanFromCents(
-  cents: number | null | undefined
-): {
-  tax6: string
-  tax1: string
-} {
-  const { tax6, tax1 } = deriveSingleClassTaxedCents(Math.max(cents ?? 0, 0))
-  return {
-    tax6: centsToYuan(tax6),
-    tax1: centsToYuan(tax1),
-  }
-}
-
 export function MadridPricingDrawer({
   open,
   onOpenChange,
-  countryId,
+  kind,
+  mode,
+  lockedCountryId,
+  availableCountries,
   countries,
   onSavedCountryID,
-  mode,
   current,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  countryId: string
+  kind: MadridDrawerKind
+  mode: MadridDrawerMode
+  lockedCountryId?: string
+  availableCountries: Country[]
   countries: Country[]
   onSavedCountryID?: (countryId: string) => void
-  mode: 'base' | 'country'
   current?: MadridPricingEntry
 }) {
   const form = useForm<MadridValues>({
@@ -197,26 +155,48 @@ export function MadridPricingDrawer({
     () => countries.filter((country) => country.is_madrid_member),
     [countries]
   )
+  const selectedCountryID = form.watch('country_id')
+  const resolvedCountry = madridCountries.find(
+    (country) => country.id === selectedCountryID
+  )
+  const shouldLockCountry =
+    kind === 'country' &&
+    (mode === 'edit' || Boolean(lockedCountryId) || availableCountries.length === 1)
 
   useEffect(() => {
     if (!open) return
-    const defaultCountryID = current?.country_id ?? countryId
+    const defaultCountryID =
+      kind === 'country'
+        ? mode === 'edit'
+          ? current?.country_id ?? ''
+          : lockedCountryId ??
+            (availableCountries.length === 1 ? availableCountries[0]?.id ?? '' : '')
+        : ''
     const defaultCountry = madridCountries.find(
       (country) => country.id === defaultCountryID
     )
     form.reset({
-      country_id: mode === 'country' ? defaultCountryID : '',
+      country_id: kind === 'country' ? defaultCountryID : '',
       sequence_no:
         current?.sequence_no == null ? '' : String(current.sequence_no),
       country_area:
         current?.country_area ??
-        (mode === 'base' ? MADRID_BASE_COUNTRY_AREA : defaultCountry?.name_zh ?? ''),
+        (kind === 'base' ? MADRID_BASE_COUNTRY_AREA : defaultCountry?.name_zh ?? ''),
       official_fee_chf: centsToYuan(current?.official_fee_chf_cents),
       agency_fee_cny: centsToYuan(current?.agency_fee_cny_cents),
       notes: current?.notes ?? '',
       effective_from: todayISO(),
     })
-  }, [countryId, current, form, madridCountries, mode, open])
+  }, [
+    availableCountries,
+    current,
+    form,
+    kind,
+    lockedCountryId,
+    madridCountries,
+    mode,
+    open,
+  ])
 
   const onSubmit = form.handleSubmit(async (values) => {
     const selectedCountry = madridCountries.find(
@@ -224,23 +204,23 @@ export function MadridPricingDrawer({
     )
     const saved = await mutation
       .mutateAsync({
-        country_id: mode === 'country' ? values.country_id || countryId : null,
+        country_id: kind === 'country' ? values.country_id : null,
         sequence_no:
-          mode === 'country' && values.sequence_no?.trim()
+          kind === 'country' && values.sequence_no?.trim()
             ? Number(values.sequence_no)
             : null,
         country_area:
-          mode === 'base'
+          kind === 'base'
             ? values.country_area.trim() || MADRID_BASE_COUNTRY_AREA
             : selectedCountry?.name_zh ?? values.country_area.trim(),
         official_fee_chf_cents: yuanToCents(values.official_fee_chf),
         agency_fee_cny_cents: yuanToCents(values.agency_fee_cny),
-        is_base_fee: mode === 'base',
+        is_base_fee: kind === 'base',
         notes: values.notes?.trim() ? values.notes.trim() : null,
         effective_from: values.effective_from,
       })
       .then((entry) => {
-        if (mode === 'country' && entry.country_id) {
+        if (kind === 'country' && entry.country_id) {
           onSavedCountryID?.(entry.country_id)
         }
         return entry
@@ -256,7 +236,7 @@ export function MadridPricingDrawer({
       <SheetContent className='w-full overflow-y-auto sm:max-w-xl'>
         <SheetHeader>
           <SheetTitle>
-            {mode === 'base' ? '马德里基础费' : '马德里国家费'}
+            {kind === 'base' ? '马德里基础费' : '马德里国家费'}
           </SheetTitle>
           <SheetDescription>
             保存会生成新版本并废止当前生效版本。
@@ -264,14 +244,25 @@ export function MadridPricingDrawer({
         </SheetHeader>
         <Form {...form}>
           <form onSubmit={onSubmit} className='flex flex-col gap-4 p-4'>
-            {mode === 'country' && (
+            {kind === 'country' && (
               <TextField
                 control={form.control}
                 name='sequence_no'
                 label='序号'
               />
             )}
-            {mode === 'country' && (
+            {kind === 'country' && shouldLockCountry ? (
+              <ReadOnlyField
+                label='国家/地区'
+                value={[
+                  resolvedCountry?.name_zh ?? form.getValues('country_area'),
+                  resolvedCountry?.code,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+            ) : null}
+            {kind === 'country' && !shouldLockCountry && (
               <FormField
                 control={form.control}
                 name='country_id'
@@ -282,14 +273,14 @@ export function MadridPricingDrawer({
                       value={field.value ?? ''}
                       onValueChange={(value) => {
                         field.onChange(value)
-                        const country = madridCountries.find(
+                        const country = availableCountries.find(
                           (item) => item.id === value
                         )
                         form.setValue('country_area', country?.name_zh ?? '', {
                           shouldValidate: true,
                         })
                       }}
-                      disabled={madridCountries.length === 0}
+                      disabled={availableCountries.length === 0}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -297,7 +288,7 @@ export function MadridPricingDrawer({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {madridCountries.map((country) => (
+                        {availableCountries.map((country) => (
                           <SelectItem key={country.id} value={country.id}>
                             {country.name_zh} · {country.code}
                           </SelectItem>
@@ -355,14 +346,18 @@ export function MadridPricingDrawer({
 export function SingleClassPricingDrawer({
   open,
   onOpenChange,
-  countryId,
+  mode,
+  lockedCountryId,
+  availableCountries,
   countries,
   onSavedCountryID,
   current,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  countryId: string
+  mode: SingleClassDrawerMode
+  lockedCountryId?: string
+  availableCountries: Country[]
   countries: Country[]
   onSavedCountryID?: (countryId: string) => void
   current?: SingleClassPricingEntry
@@ -390,39 +385,42 @@ export function SingleClassPricingDrawer({
     },
   })
   const mutation = useCreateOrReplaceSingleClassPricing()
-  const firstClassFeeCny = useWatch({
-    control: form.control,
-    name: 'first_class_fee_cny',
-  })
-  const additionalClassFeeCny = useWatch({
-    control: form.control,
-    name: 'additional_class_fee_cny',
-  })
+  const selectedCountryID = form.watch('country_id')
+  const resolvedCountry = countries.find(
+    (country) => country.id === selectedCountryID
+  )
 
   useEffect(() => {
     if (!open) return
-    const defaultCountryID = current?.country_id ?? countryId
+    const defaultCountryID =
+      mode === 'edit'
+        ? current?.country_id ?? ''
+        : lockedCountryId ??
+          (availableCountries.length === 1 ? availableCountries[0]?.id : '') ??
+          ''
     const defaultCountry = countries.find(
       (country) => country.id === defaultCountryID
-    )
-    const firstClassDerived = deriveSingleClassTaxedYuanFromCents(
-      current?.first_class_fee_cny_cents
-    )
-    const additionalClassDerived = deriveSingleClassTaxedYuanFromCents(
-      current?.additional_class_fee_cny_cents
     )
     form.reset({
       country_id: defaultCountryID,
       continent: current?.continent ?? '',
       country_area: current?.country_area ?? defaultCountry?.name_zh ?? '',
       first_class_fee_cny: centsToYuan(current?.first_class_fee_cny_cents),
-      first_class_fee_tax6_cny: firstClassDerived.tax6,
-      first_class_fee_tax1_cny: firstClassDerived.tax1,
+      first_class_fee_tax6_cny: centsToYuan(
+        current?.first_class_fee_tax6_cny_cents
+      ),
+      first_class_fee_tax1_cny: centsToYuan(
+        current?.first_class_fee_tax1_cny_cents
+      ),
       additional_class_fee_cny: centsToYuan(
         current?.additional_class_fee_cny_cents
       ),
-      additional_class_fee_tax6_cny: additionalClassDerived.tax6,
-      additional_class_fee_tax1_cny: additionalClassDerived.tax1,
+      additional_class_fee_tax6_cny: centsToYuan(
+        current?.additional_class_fee_tax6_cny_cents
+      ),
+      additional_class_fee_tax1_cny: centsToYuan(
+        current?.additional_class_fee_tax1_cny_cents
+      ),
       required_documents: current?.required_documents ?? '',
       notarization_fee: current?.notarization_fee ?? '',
       acceptance_time: current?.acceptance_time ?? '',
@@ -433,57 +431,33 @@ export function SingleClassPricingDrawer({
       note2: current?.note2 ?? '',
       effective_from: todayISO(),
     })
-  }, [countries, countryId, current, form, open])
-
-  useEffect(() => {
-    const { tax6, tax1 } = deriveSingleClassTaxedYuan(firstClassFeeCny)
-    form.setValue('first_class_fee_tax6_cny', tax6, {
-      shouldDirty: false,
-      shouldValidate: true,
-    })
-    form.setValue('first_class_fee_tax1_cny', tax1, {
-      shouldDirty: false,
-      shouldValidate: true,
-    })
-  }, [firstClassFeeCny, form])
-
-  useEffect(() => {
-    const { tax6, tax1 } = deriveSingleClassTaxedYuan(additionalClassFeeCny)
-    form.setValue('additional_class_fee_tax6_cny', tax6, {
-      shouldDirty: false,
-      shouldValidate: true,
-    })
-    form.setValue('additional_class_fee_tax1_cny', tax1, {
-      shouldDirty: false,
-      shouldValidate: true,
-    })
-  }, [additionalClassFeeCny, form])
+  }, [availableCountries, countries, current, form, lockedCountryId, mode, open])
 
   const onSubmit = form.handleSubmit(async (values) => {
     const selectedCountry = countries.find(
       (country) => country.id === values.country_id
     )
-    const firstClassFeeCNYCents = yuanToCents(values.first_class_fee_cny)
-    const additionalClassFeeCNYCents = yuanToCents(
-      values.additional_class_fee_cny
-    )
-    const firstClassDerived = deriveSingleClassTaxedCents(
-      firstClassFeeCNYCents
-    )
-    const additionalClassDerived = deriveSingleClassTaxedCents(
-      additionalClassFeeCNYCents
-    )
     const saved = await mutation
       .mutateAsync({
-        country_id: values.country_id || countryId,
+        country_id: values.country_id,
         continent: values.continent.trim(),
         country_area: selectedCountry?.name_zh ?? values.country_area.trim(),
-        first_class_fee_cny_cents: firstClassFeeCNYCents,
-        first_class_fee_tax6_cny_cents: firstClassDerived.tax6,
-        first_class_fee_tax1_cny_cents: firstClassDerived.tax1,
-        additional_class_fee_cny_cents: additionalClassFeeCNYCents,
-        additional_class_fee_tax6_cny_cents: additionalClassDerived.tax6,
-        additional_class_fee_tax1_cny_cents: additionalClassDerived.tax1,
+        first_class_fee_cny_cents: yuanToCents(values.first_class_fee_cny),
+        first_class_fee_tax6_cny_cents: yuanToCents(
+          values.first_class_fee_tax6_cny
+        ),
+        first_class_fee_tax1_cny_cents: yuanToCents(
+          values.first_class_fee_tax1_cny
+        ),
+        additional_class_fee_cny_cents: yuanToCents(
+          values.additional_class_fee_cny
+        ),
+        additional_class_fee_tax6_cny_cents: yuanToCents(
+          values.additional_class_fee_tax6_cny
+        ),
+        additional_class_fee_tax1_cny_cents: yuanToCents(
+          values.additional_class_fee_tax1_cny
+        ),
         required_documents: values.required_documents ?? '',
         notarization_fee: values.notarization_fee ?? '',
         acceptance_time: values.acceptance_time ?? '',
@@ -518,42 +492,54 @@ export function SingleClassPricingDrawer({
           <form onSubmit={onSubmit} className='flex flex-col gap-4 p-4'>
             <div className='grid gap-4 sm:grid-cols-2'>
               <TextField control={form.control} name='continent' label='大洲' />
-              <FormField
-                control={form.control}
-                name='country_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>国家/地区</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        field.onChange(value)
-                        const country = countries.find(
-                          (item) => item.id === value
-                        )
-                        form.setValue('country_area', country?.name_zh ?? '', {
-                          shouldValidate: true,
-                        })
-                      }}
-                      disabled={countries.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='选择国家/地区' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {countries.map((country) => (
-                          <SelectItem key={country.id} value={country.id}>
-                            {country.name_zh} · {country.code}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {mode === 'edit' || lockedCountryId ? (
+                <ReadOnlyField
+                  label='国家/地区'
+                  value={[
+                    resolvedCountry?.name_zh ?? form.getValues('country_area'),
+                    resolvedCountry?.code,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name='country_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>国家/地区</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => {
+                          field.onChange(value)
+                          const country = availableCountries.find(
+                            (item) => item.id === value
+                          )
+                          form.setValue('country_area', country?.name_zh ?? '', {
+                            shouldValidate: true,
+                          })
+                        }}
+                        disabled={availableCountries.length === 0}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='选择国家/地区' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {availableCountries.map((country) => (
+                            <SelectItem key={country.id} value={country.id}>
+                              {country.name_zh} · {country.code}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <TextField
                 control={form.control}
                 name='first_class_fee_cny'
@@ -563,13 +549,11 @@ export function SingleClassPricingDrawer({
                 control={form.control}
                 name='first_class_fee_tax6_cny'
                 label='首类费用（含税 6%）'
-                readOnly
               />
               <TextField
                 control={form.control}
                 name='first_class_fee_tax1_cny'
                 label='首类费用（含税 1%）'
-                readOnly
               />
               <TextField
                 control={form.control}
@@ -580,13 +564,11 @@ export function SingleClassPricingDrawer({
                 control={form.control}
                 name='additional_class_fee_tax6_cny'
                 label='每次类费用（含税 6%）'
-                readOnly
               />
               <TextField
                 control={form.control}
                 name='additional_class_fee_tax1_cny'
                 label='每次类费用（含税 1%）'
-                readOnly
               />
               <TextField
                 control={form.control}
@@ -660,13 +642,11 @@ function TextField<T extends FieldValues>({
   name,
   label,
   type = 'text',
-  readOnly = false,
 }: {
   control: Control<T>
   name: Path<T>
   label: string
   type?: string
-  readOnly?: boolean
 }) {
   return (
     <FormField
@@ -676,17 +656,29 @@ function TextField<T extends FieldValues>({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input
-              {...field}
-              type={type}
-              readOnly={readOnly}
-              className={readOnly ? 'bg-muted' : undefined}
-            />
+            <Input type={type} {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
       )}
     />
+  )
+}
+
+function ReadOnlyField({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div className='space-y-2'>
+      <div className='text-sm font-medium'>{label}</div>
+      <div className='rounded-md border bg-muted px-3 py-2 text-sm'>
+        {value || '—'}
+      </div>
+    </div>
   )
 }
 
