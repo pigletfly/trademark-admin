@@ -99,6 +99,9 @@ const singleClassSchema = z.object({
 
 type MadridValues = z.infer<typeof madridSchema>
 type SingleClassValues = z.infer<typeof singleClassSchema>
+type MadridDrawerKind = 'base' | 'country'
+type MadridDrawerMode = 'create' | 'edit'
+type SingleClassDrawerMode = 'create' | 'edit'
 
 const MADRID_BASE_COUNTRY_AREA = 'Basic registration fee - black and white mark'
 
@@ -117,18 +120,22 @@ function yuanToCents(value: string): number {
 export function MadridPricingDrawer({
   open,
   onOpenChange,
-  countryId,
+  kind,
+  mode,
+  lockedCountryId,
+  availableCountries,
   countries,
   onSavedCountryID,
-  mode,
   current,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  countryId: string
+  kind: MadridDrawerKind
+  mode: MadridDrawerMode
+  lockedCountryId?: string
+  availableCountries: Country[]
   countries: Country[]
   onSavedCountryID?: (countryId: string) => void
-  mode: 'base' | 'country'
   current?: MadridPricingEntry
 }) {
   const form = useForm<MadridValues>({
@@ -148,26 +155,48 @@ export function MadridPricingDrawer({
     () => countries.filter((country) => country.is_madrid_member),
     [countries]
   )
+  const selectedCountryID = form.watch('country_id')
+  const resolvedCountry = madridCountries.find(
+    (country) => country.id === selectedCountryID
+  )
+  const shouldLockCountry =
+    kind === 'country' &&
+    (mode === 'edit' || Boolean(lockedCountryId) || availableCountries.length === 1)
 
   useEffect(() => {
     if (!open) return
-    const defaultCountryID = current?.country_id ?? countryId
+    const defaultCountryID =
+      kind === 'country'
+        ? mode === 'edit'
+          ? current?.country_id ?? ''
+          : lockedCountryId ??
+            (availableCountries.length === 1 ? availableCountries[0]?.id ?? '' : '')
+        : ''
     const defaultCountry = madridCountries.find(
       (country) => country.id === defaultCountryID
     )
     form.reset({
-      country_id: mode === 'country' ? defaultCountryID : '',
+      country_id: kind === 'country' ? defaultCountryID : '',
       sequence_no:
         current?.sequence_no == null ? '' : String(current.sequence_no),
       country_area:
         current?.country_area ??
-        (mode === 'base' ? MADRID_BASE_COUNTRY_AREA : defaultCountry?.name_zh ?? ''),
+        (kind === 'base' ? MADRID_BASE_COUNTRY_AREA : defaultCountry?.name_zh ?? ''),
       official_fee_chf: centsToYuan(current?.official_fee_chf_cents),
       agency_fee_cny: centsToYuan(current?.agency_fee_cny_cents),
       notes: current?.notes ?? '',
       effective_from: todayISO(),
     })
-  }, [countryId, current, form, madridCountries, mode, open])
+  }, [
+    availableCountries,
+    current,
+    form,
+    kind,
+    lockedCountryId,
+    madridCountries,
+    mode,
+    open,
+  ])
 
   const onSubmit = form.handleSubmit(async (values) => {
     const selectedCountry = madridCountries.find(
@@ -175,23 +204,23 @@ export function MadridPricingDrawer({
     )
     const saved = await mutation
       .mutateAsync({
-        country_id: mode === 'country' ? values.country_id || countryId : null,
+        country_id: kind === 'country' ? values.country_id : null,
         sequence_no:
-          mode === 'country' && values.sequence_no?.trim()
+          kind === 'country' && values.sequence_no?.trim()
             ? Number(values.sequence_no)
             : null,
         country_area:
-          mode === 'base'
+          kind === 'base'
             ? values.country_area.trim() || MADRID_BASE_COUNTRY_AREA
             : selectedCountry?.name_zh ?? values.country_area.trim(),
         official_fee_chf_cents: yuanToCents(values.official_fee_chf),
         agency_fee_cny_cents: yuanToCents(values.agency_fee_cny),
-        is_base_fee: mode === 'base',
+        is_base_fee: kind === 'base',
         notes: values.notes?.trim() ? values.notes.trim() : null,
         effective_from: values.effective_from,
       })
       .then((entry) => {
-        if (mode === 'country' && entry.country_id) {
+        if (kind === 'country' && entry.country_id) {
           onSavedCountryID?.(entry.country_id)
         }
         return entry
@@ -207,7 +236,7 @@ export function MadridPricingDrawer({
       <SheetContent className='w-full overflow-y-auto sm:max-w-xl'>
         <SheetHeader>
           <SheetTitle>
-            {mode === 'base' ? '马德里基础费' : '马德里国家费'}
+            {kind === 'base' ? '马德里基础费' : '马德里国家费'}
           </SheetTitle>
           <SheetDescription>
             保存会生成新版本并废止当前生效版本。
@@ -215,14 +244,25 @@ export function MadridPricingDrawer({
         </SheetHeader>
         <Form {...form}>
           <form onSubmit={onSubmit} className='flex flex-col gap-4 p-4'>
-            {mode === 'country' && (
+            {kind === 'country' && (
               <TextField
                 control={form.control}
                 name='sequence_no'
                 label='序号'
               />
             )}
-            {mode === 'country' && (
+            {kind === 'country' && shouldLockCountry ? (
+              <ReadOnlyField
+                label='国家/地区'
+                value={[
+                  resolvedCountry?.name_zh ?? form.getValues('country_area'),
+                  resolvedCountry?.code,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+            ) : null}
+            {kind === 'country' && !shouldLockCountry && (
               <FormField
                 control={form.control}
                 name='country_id'
@@ -233,14 +273,14 @@ export function MadridPricingDrawer({
                       value={field.value ?? ''}
                       onValueChange={(value) => {
                         field.onChange(value)
-                        const country = madridCountries.find(
+                        const country = availableCountries.find(
                           (item) => item.id === value
                         )
                         form.setValue('country_area', country?.name_zh ?? '', {
                           shouldValidate: true,
                         })
                       }}
-                      disabled={madridCountries.length === 0}
+                      disabled={availableCountries.length === 0}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -248,7 +288,7 @@ export function MadridPricingDrawer({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {madridCountries.map((country) => (
+                        {availableCountries.map((country) => (
                           <SelectItem key={country.id} value={country.id}>
                             {country.name_zh} · {country.code}
                           </SelectItem>
@@ -306,14 +346,18 @@ export function MadridPricingDrawer({
 export function SingleClassPricingDrawer({
   open,
   onOpenChange,
-  countryId,
+  mode,
+  lockedCountryId,
+  availableCountries,
   countries,
   onSavedCountryID,
   current,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  countryId: string
+  mode: SingleClassDrawerMode
+  lockedCountryId?: string
+  availableCountries: Country[]
   countries: Country[]
   onSavedCountryID?: (countryId: string) => void
   current?: SingleClassPricingEntry
@@ -341,10 +385,19 @@ export function SingleClassPricingDrawer({
     },
   })
   const mutation = useCreateOrReplaceSingleClassPricing()
+  const selectedCountryID = form.watch('country_id')
+  const resolvedCountry = countries.find(
+    (country) => country.id === selectedCountryID
+  )
 
   useEffect(() => {
     if (!open) return
-    const defaultCountryID = current?.country_id ?? countryId
+    const defaultCountryID =
+      mode === 'edit'
+        ? current?.country_id ?? ''
+        : lockedCountryId ??
+          (availableCountries.length === 1 ? availableCountries[0]?.id : '') ??
+          ''
     const defaultCountry = countries.find(
       (country) => country.id === defaultCountryID
     )
@@ -378,7 +431,7 @@ export function SingleClassPricingDrawer({
       note2: current?.note2 ?? '',
       effective_from: todayISO(),
     })
-  }, [countries, countryId, current, form, open])
+  }, [availableCountries, countries, current, form, lockedCountryId, mode, open])
 
   const onSubmit = form.handleSubmit(async (values) => {
     const selectedCountry = countries.find(
@@ -386,7 +439,7 @@ export function SingleClassPricingDrawer({
     )
     const saved = await mutation
       .mutateAsync({
-        country_id: values.country_id || countryId,
+        country_id: values.country_id,
         continent: values.continent.trim(),
         country_area: selectedCountry?.name_zh ?? values.country_area.trim(),
         first_class_fee_cny_cents: yuanToCents(values.first_class_fee_cny),
@@ -439,42 +492,54 @@ export function SingleClassPricingDrawer({
           <form onSubmit={onSubmit} className='flex flex-col gap-4 p-4'>
             <div className='grid gap-4 sm:grid-cols-2'>
               <TextField control={form.control} name='continent' label='大洲' />
-              <FormField
-                control={form.control}
-                name='country_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>国家/地区</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        field.onChange(value)
-                        const country = countries.find(
-                          (item) => item.id === value
-                        )
-                        form.setValue('country_area', country?.name_zh ?? '', {
-                          shouldValidate: true,
-                        })
-                      }}
-                      disabled={countries.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='选择国家/地区' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {countries.map((country) => (
-                          <SelectItem key={country.id} value={country.id}>
-                            {country.name_zh} · {country.code}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {mode === 'edit' || lockedCountryId ? (
+                <ReadOnlyField
+                  label='国家/地区'
+                  value={[
+                    resolvedCountry?.name_zh ?? form.getValues('country_area'),
+                    resolvedCountry?.code,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name='country_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>国家/地区</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => {
+                          field.onChange(value)
+                          const country = availableCountries.find(
+                            (item) => item.id === value
+                          )
+                          form.setValue('country_area', country?.name_zh ?? '', {
+                            shouldValidate: true,
+                          })
+                        }}
+                        disabled={availableCountries.length === 0}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='选择国家/地区' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {availableCountries.map((country) => (
+                            <SelectItem key={country.id} value={country.id}>
+                              {country.name_zh} · {country.code}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <TextField
                 control={form.control}
                 name='first_class_fee_cny'
@@ -597,6 +662,23 @@ function TextField<T extends FieldValues>({
         </FormItem>
       )}
     />
+  )
+}
+
+function ReadOnlyField({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div className='space-y-2'>
+      <div className='text-sm font-medium'>{label}</div>
+      <div className='rounded-md border bg-muted px-3 py-2 text-sm'>
+        {value || '—'}
+      </div>
+    </div>
   )
 }
 
