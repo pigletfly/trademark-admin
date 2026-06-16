@@ -1,6 +1,6 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { Link } from '@tanstack/react-router'
-import type { Quotation } from '../types'
+import type { Quotation, ServiceTier } from '../types'
 import { QuotationStatusBadge } from './quotation-status-badge'
 
 function formatCNY(cents: number | null | undefined): string {
@@ -9,6 +9,14 @@ function formatCNY(cents: number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+// 列表「代理级别」与新建向导口径保持一致：service_tier 由 agent_level 派生
+// (A 代理 → basic、B 代理 → standard)；premium 属历史数据，并入 B 代理显示。
+const AGENT_LEVEL_LABELS: Record<ServiceTier, string> = {
+  basic: 'A 代理',
+  standard: 'B 代理',
+  premium: 'B 代理',
 }
 
 export const quotationColumns: ColumnDef<Quotation>[] = [
@@ -32,7 +40,8 @@ export const quotationColumns: ColumnDef<Quotation>[] = [
   },
   {
     accessorKey: 'service_tier',
-    header: '级别',
+    header: '代理级别',
+    cell: ({ row }) => AGENT_LEVEL_LABELS[row.original.service_tier],
   },
   {
     accessorKey: 'total_cny_cents',
